@@ -36,6 +36,7 @@ struct ViewModel {
     pan: Vec2,
     zoom: f32,
     live_physics: bool,
+    lazy_physics: bool,
     physics_intensity: f32,
     physics_repulsion: f32,
     physics_spring: f32,

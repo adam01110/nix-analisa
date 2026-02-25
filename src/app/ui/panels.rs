@@ -30,6 +30,7 @@ impl ViewModel {
             pan: Vec2::ZERO,
             zoom: 1.0,
             live_physics: true,
+            lazy_physics: false,
             physics_intensity: 1.0,
             physics_repulsion: 2.6,
             physics_spring: 0.2,

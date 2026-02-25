@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use eframe::egui::{self, vec2, Align2, Color32, FontId, Sense, Stroke, Ui};
+use eframe::egui::{self, vec2, Align2, Color32, FontId, Sense, Stroke, Ui, Vec2};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
@@ -21,6 +21,40 @@ fn fuzzy_match_score(matcher: &SkimMatcherV2, text: &str, query: &str) -> Option
 }
 
 impl ViewModel {
+    fn update_screen_space(
+        rect: egui::Rect,
+        pan: Vec2,
+        zoom: f32,
+        cache: &mut super::super::RenderGraph,
+    ) {
+        cache.view_scratch.screen_positions.clear();
+        cache.view_scratch.screen_positions.reserve(
+            cache
+                .nodes
+                .len()
+                .saturating_sub(cache.view_scratch.screen_positions.capacity()),
+        );
+        cache.view_scratch.screen_radii.clear();
+        cache.view_scratch.screen_radii.reserve(
+            cache
+                .nodes
+                .len()
+                .saturating_sub(cache.view_scratch.screen_radii.capacity()),
+        );
+        for render_node in &cache.nodes {
+            cache.view_scratch.screen_positions.push(world_to_screen(
+                rect,
+                pan,
+                zoom,
+                render_node.world_pos,
+            ));
+            cache
+                .view_scratch
+                .screen_radii
+                .push((render_node.base_radius * zoom.powf(0.40)).clamp(2.5, 46.0));
+        }
+    }
+
     fn cached_pseudo_matches(&mut self) -> Option<Arc<HashSet<usize>>> {
         if self.selected.is_some() {
             return None;
@@ -77,29 +111,21 @@ impl ViewModel {
         self.handle_graph_zoom(ui, rect, &response);
         self.handle_graph_pan(&response);
 
-        let interaction_active = response.dragged();
-
-        let mut physics_moving = false;
-        if self.live_physics {
-            let physics = PhysicsConfig {
-                intensity: self.physics_intensity,
-                repulsion_scale: self.physics_repulsion,
-                spring_scale: self.physics_spring,
-                collision_scale: self.physics_collision,
-                velocity_damping: self.physics_velocity_damping,
-                target_spread: self.physics_target_spread,
-                spread_force: self.physics_spread_force,
-            };
-            if let Some(cache) = self.graph_cache.as_mut() {
-                physics_moving = step_physics(cache, physics);
-            }
-        }
-
-        if physics_moving || interaction_active {
-            ui.ctx().request_repaint();
-        }
-
         let pseudo_matches = self.cached_pseudo_matches();
+        let pan = self.pan;
+        let zoom = self.zoom;
+        let lazy_physics = self.lazy_physics;
+        let show_quadtree_overlay = self.show_quadtree_overlay;
+        let interaction_active = response.dragged();
+        let physics = PhysicsConfig {
+            intensity: self.physics_intensity,
+            repulsion_scale: self.physics_repulsion,
+            spring_scale: self.physics_spring,
+            collision_scale: self.physics_collision,
+            velocity_damping: self.physics_velocity_damping,
+            target_spread: self.physics_target_spread,
+            spread_force: self.physics_spread_force,
+        };
 
         let Some(cache) = self.graph_cache.as_mut() else {
             self.visible_node_count = 0;
@@ -108,34 +134,58 @@ impl ViewModel {
             return;
         };
 
-        cache.view_scratch.screen_positions.clear();
-        cache.view_scratch.screen_positions.reserve(
-            cache
-                .nodes
-                .len()
-                .saturating_sub(cache.view_scratch.screen_positions.capacity()),
+        Self::update_screen_space(rect, pan, zoom, cache);
+        Self::visible_indices_into(
+            rect,
+            &cache.view_scratch.screen_positions,
+            &cache.view_scratch.screen_radii,
+            &mut cache.view_scratch.visible_indices,
         );
-        cache.view_scratch.screen_radii.clear();
-        cache.view_scratch.screen_radii.reserve(
-            cache
-                .nodes
-                .len()
-                .saturating_sub(cache.view_scratch.screen_radii.capacity()),
-        );
-        for render_node in &cache.nodes {
-            cache.view_scratch.screen_positions.push(world_to_screen(
-                rect,
-                self.pan,
-                self.zoom,
-                render_node.world_pos,
-            ));
-            cache
-                .view_scratch
-                .screen_radii
-                .push((render_node.base_radius * self.zoom.powf(0.40)).clamp(2.5, 46.0));
+
+        let mut physics_moving = false;
+        if self.live_physics {
+            let mut frozen_offscreen = Vec::<(usize, Vec2, Vec2)>::new();
+            if lazy_physics {
+                let mut visible_mask = vec![false; cache.nodes.len()];
+                for &index in &cache.view_scratch.visible_indices {
+                    if index < visible_mask.len() {
+                        visible_mask[index] = true;
+                    }
+                }
+                frozen_offscreen.reserve(
+                    cache
+                        .nodes
+                        .len()
+                        .saturating_sub(cache.view_scratch.visible_indices.len()),
+                );
+                for (index, node) in cache.nodes.iter().enumerate() {
+                    if !visible_mask[index] {
+                        frozen_offscreen.push((index, node.world_pos, node.velocity));
+                    }
+                }
+            }
+
+            physics_moving = step_physics(cache, physics);
+
+            if lazy_physics {
+                for (index, world_pos, velocity) in frozen_offscreen {
+                    if let Some(node) = cache.nodes.get_mut(index) {
+                        node.world_pos = world_pos;
+                        node.velocity = velocity;
+                    }
+                }
+            }
+
+            if physics_moving {
+                Self::update_screen_space(rect, pan, zoom, cache);
+            }
         }
 
-        if self.show_quadtree_overlay {
+        if physics_moving || interaction_active {
+            ui.ctx().request_repaint();
+        }
+
+        if show_quadtree_overlay {
             quadtree_cells(
                 &cache.nodes,
                 &mut cache.view_scratch.quadtree_positions,
