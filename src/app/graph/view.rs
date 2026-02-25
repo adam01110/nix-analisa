@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use eframe::egui::{self, vec2, Align2, Color32, FontId, Sense, Stroke, Ui, Vec2};
-use fuzzy_matcher::skim::SkimMatcherV2;
+use eframe::egui::{self, Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2};
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 use crate::util::{format_bytes, short_name};
 
@@ -65,10 +65,11 @@ impl ViewModel {
             return None;
         }
 
-        if let Some(cached) = &self.search_match_cache {
-            if cached.graph_revision == self.render_graph_revision && cached.query == search_query {
-                return Some(Arc::clone(&cached.matches));
-            }
+        if let Some(cached) = &self.search_match_cache
+            && cached.graph_revision == self.render_graph_revision
+            && cached.query == search_query
+        {
+            return Some(Arc::clone(&cached.matches));
         }
 
         let cache = self.graph_cache.as_ref()?;
@@ -200,7 +201,8 @@ impl ViewModel {
                 let bottom_left = world_to_screen(rect, self.pan, self.zoom, vec2(min.x, max.y));
 
                 let alpha = if cell.is_leaf { 110 } else { 55 };
-                let line_width = (1.4 - (cell.depth as f32 * 0.09)).clamp(0.45, 1.4);
+                let line_width: f32 =
+                    (1.4_f32 - (cell.depth as f32 * 0.09_f32)).clamp(0.45_f32, 1.4_f32);
                 let stroke = Stroke::new(
                     line_width,
                     Color32::from_rgba_unmultiplied(106, 198, 255, alpha),
@@ -385,22 +387,22 @@ impl ViewModel {
             }
         }
 
-        if let Some((hovered_index, _)) = hovered {
-            if let Some(node) = self.graph.nodes.get(&cache.nodes[hovered_index].id) {
-                let panel_text = format!(
-                    "{}  |  {}  |  refs {}",
-                    short_name(&node.id),
-                    format_bytes(node.metric(self.metric)),
-                    node.references.len()
-                );
-                painter.text(
-                    rect.left_top() + vec2(10.0, 10.0),
-                    Align2::LEFT_TOP,
-                    panel_text,
-                    FontId::proportional(13.0),
-                    Color32::from_gray(240),
-                );
-            }
+        if let Some((hovered_index, _)) = hovered
+            && let Some(node) = self.graph.nodes.get(&cache.nodes[hovered_index].id)
+        {
+            let panel_text = format!(
+                "{}  |  {}  |  refs {}",
+                short_name(&node.id),
+                format_bytes(node.metric(self.metric)),
+                node.references.len()
+            );
+            painter.text(
+                rect.left_top() + vec2(10.0, 10.0),
+                Align2::LEFT_TOP,
+                panel_text,
+                FontId::proportional(13.0),
+                Color32::from_gray(240),
+            );
         }
 
         if let Some(selected) = pending_selection {

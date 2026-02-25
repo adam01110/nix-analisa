@@ -163,13 +163,13 @@ impl ViewModel {
             related_limit,
         };
 
-        if let Some(cache) = &self.details_panel_cache {
-            if cache.key == key {
-                return (
-                    cache.related_nodes.clone(),
-                    cache.shortest_path_from_root.clone(),
-                );
-            }
+        if let Some(cache) = &self.details_panel_cache
+            && cache.key == key
+        {
+            return (
+                cache.related_nodes.clone(),
+                cache.shortest_path_from_root.clone(),
+            );
         }
 
         let shortest_path_from_root = self.graph.shortest_path_from_root(selected_id);
@@ -247,36 +247,39 @@ impl ViewModel {
             }
         }
 
-        if let Some(cache) = &self.graph_cache {
-            if let Some(&selected_index) = cache.index_by_id.get(selected_id) {
-                let highlight = build_highlight_state(cache, selected_index);
-                let direct_outgoing = cache
-                    .outgoing
-                    .get(selected_index)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                    .collect::<HashSet<_>>();
-                let direct_incoming = cache
-                    .incoming
-                    .get(selected_index)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                    .collect::<HashSet<_>>();
+        if let Some(cache) = &self.graph_cache
+            && let Some(&selected_index) = cache.index_by_id.get(selected_id)
+        {
+            let highlight = build_highlight_state(cache, selected_index);
+            let direct_outgoing = cache
+                .outgoing
+                .get(selected_index)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect::<HashSet<_>>();
+            let direct_incoming = cache
+                .incoming
+                .get(selected_index)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect::<HashSet<_>>();
 
-                for index in highlight
-                    .root_path_nodes
-                    .iter()
-                    .chain(highlight.related_nodes.iter())
-                {
-                    if *index == selected_index {
-                        continue;
-                    }
+            for index in highlight
+                .root_path_nodes
+                .iter()
+                .chain(highlight.related_nodes.iter())
+            {
+                if *index == selected_index {
+                    continue;
+                }
 
-                    if let Some(render_node) = cache.nodes.get(*index) {
-                        let entry = related_by_id.entry(render_node.id.clone()).or_insert(
-                            RelatedNodeFlags {
+                if let Some(render_node) = cache.nodes.get(*index) {
+                    let entry =
+                        related_by_id
+                            .entry(render_node.id.clone())
+                            .or_insert(RelatedNodeFlags {
                                 metric_value: self
                                     .graph
                                     .nodes
@@ -284,14 +287,12 @@ impl ViewModel {
                                     .map(|node| node.metric(self.metric))
                                     .unwrap_or(render_node.metric_value),
                                 ..Default::default()
-                            },
-                        );
+                            });
 
-                        entry.is_in_view = true;
-                        entry.is_root_path |= highlight.root_path_nodes.contains(index);
-                        entry.is_direct |=
-                            direct_outgoing.contains(index) || direct_incoming.contains(index);
-                    }
+                    entry.is_in_view = true;
+                    entry.is_root_path |= highlight.root_path_nodes.contains(index);
+                    entry.is_direct |=
+                        direct_outgoing.contains(index) || direct_incoming.contains(index);
                 }
             }
         }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use eframe::egui::{vec2, Vec2};
+use eframe::egui::{Vec2, vec2};
 
 use crate::util::stable_pair;
 
@@ -43,10 +43,11 @@ impl ViewModel {
             ids.push(self.graph.root_id.clone());
         }
 
-        if let Some(selected_id) = &self.selected {
-            if self.graph.nodes.contains_key(selected_id) && selected.insert(selected_id.as_str()) {
-                ids.push(selected_id.clone());
-            }
+        if let Some(selected_id) = &self.selected
+            && self.graph.nodes.contains_key(selected_id)
+            && selected.insert(selected_id.as_str())
+        {
+            ids.push(selected_id.clone());
         }
 
         for (_metric, id) in ranked {
@@ -78,10 +79,10 @@ impl ViewModel {
             };
 
             for target_id in &node.references {
-                if let Some(&target_index) = index_by_id.get(target_id) {
-                    if source_index != target_index {
-                        edges.push((source_index, target_index));
-                    }
+                if let Some(&target_index) = index_by_id.get(target_id)
+                    && source_index != target_index
+                {
+                    edges.push((source_index, target_index));
                 }
             }
         }

@@ -83,13 +83,13 @@ pub(super) fn build_highlight_state_for_selected_id(
         }
 
         for pair in path.windows(2) {
-            if let [source_id, target_id] = pair {
-                if let (Some(&source), Some(&target)) = (
+            if let [source_id, target_id] = pair
+                && let (Some(&source), Some(&target)) = (
                     cache.index_by_id.get(source_id),
                     cache.index_by_id.get(target_id),
-                ) {
-                    root_path_edges.insert((source, target));
-                }
+                )
+            {
+                root_path_edges.insert((source, target));
             }
         }
     }

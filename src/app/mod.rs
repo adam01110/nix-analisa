@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use eframe::egui::{self, Context, Pos2, Vec2};
 
-use crate::nix::{collect_system_graph, SizeMetric, SystemGraph};
+use crate::nix::{SizeMetric, SystemGraph, collect_system_graph};
 
 mod graph;
 mod highlight;

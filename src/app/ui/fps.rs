@@ -34,16 +34,16 @@ impl ViewModel {
             parts.push(format!("avg {:.1}", avg));
         }
 
-        if self.fps_show_low {
-            if let Some(low) = self.fps_samples.iter().copied().reduce(f32::min) {
-                parts.push(format!("low {:.0}", low));
-            }
+        if self.fps_show_low
+            && let Some(low) = self.fps_samples.iter().copied().reduce(f32::min)
+        {
+            parts.push(format!("low {:.0}", low));
         }
 
-        if self.fps_show_high {
-            if let Some(high) = self.fps_samples.iter().copied().reduce(f32::max) {
-                parts.push(format!("high {:.0}", high));
-            }
+        if self.fps_show_high
+            && let Some(high) = self.fps_samples.iter().copied().reduce(f32::max)
+        {
+            parts.push(format!("high {:.0}", high));
         }
 
         if self.fps_show_frame_time && self.fps_current > f32::EPSILON {

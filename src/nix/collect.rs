@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use super::graph::{NodeRecord, SystemGraph};
 use super::nix_cmd::run_nix;

@@ -1,7 +1,7 @@
 use eframe::egui::{self, Pos2, Rect, Ui};
 
-use super::super::render_utils::{circle_visible, screen_to_world};
 use super::super::ViewModel;
+use super::super::render_utils::{circle_visible, screen_to_world};
 
 impl ViewModel {
     pub(in crate::app) fn handle_graph_zoom(
