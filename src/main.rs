@@ -1,5 +1,5 @@
 mod app;
-mod nix_data;
+mod nix;
 mod util;
 
 use clap::Parser;

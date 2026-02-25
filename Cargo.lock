@@ -1989,7 +1989,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-analuze"
+name = "nix-analisa"
 version = "0.1.0"
 dependencies = [
  "anyhow",

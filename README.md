@@ -2,18 +2,23 @@
 
 ## ⚠️ Warning
 
-Very vibecoded, you should probably not use it, but i just wanted to try and use it to vibecode something even if only once, and subsequentlly lose alot of hairs pulling them out because the AI makes stupid mistakes constantly.
+Very vibecoded; you should probably not use it. I just wanted to try to
+vibecode something even just only once, and I subsequently have been pulling a
+lot of my hair out because the AI makes stupid mistakes consistently.
 
-`nix-analisá` is a Rust GUI tool that inspects the active NixOS system closure and visualizes it as an interactive dependency graph.
+`nix-analisá` is a Rust GUI tool that inspects the active NixOS system closure
+and visualizes it as an interactive dependency graph.
 
 Key behavior:
 
 - Reads NixOS closure metadata from `nix path-info` (not filesystem traversal).
-- Builds a derivation/store-path dependency graph from `/run/current-system` by default.
+- Builds a derivation/store-path dependency graph from
+  `/run/current-system` by default.
 - Renders an Obsidian-style graph with node size mapped to `narSize` or `closureSize`.
 - Uses live physics simulation to keep nodes separated and reduce clumping.
 - Highlights dependency paths and neighborhood edges related to the selected node.
-- Shows "why large" details (direct size, transitive weight, reverse dependency pressure).
+- Shows "why large" details (direct size, transitive weight, reverse
+  dependency pressure).
 
 ## Run
 
