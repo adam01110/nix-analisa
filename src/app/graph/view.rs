@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use eframe::egui::{self, vec2, Align2, Color32, FontId, Sense, Stroke, Ui};
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -20,11 +21,65 @@ fn fuzzy_match_score(matcher: &SkimMatcherV2, text: &str, query: &str) -> Option
 }
 
 impl ViewModel {
+    fn cached_pseudo_matches(&mut self) -> Option<Arc<HashSet<usize>>> {
+        if self.selected.is_some() {
+            return None;
+        }
+
+        let search_query = self.search.trim();
+        if search_query.is_empty() {
+            return None;
+        }
+
+        if let Some(cached) = &self.search_match_cache {
+            if cached.graph_revision == self.render_graph_revision && cached.query == search_query {
+                return Some(Arc::clone(&cached.matches));
+            }
+        }
+
+        let cache = self.graph_cache.as_ref()?;
+        let matcher = SkimMatcherV2::default();
+        let matches = cache
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                if fuzzy_match_score(&matcher, &node.id, search_query).is_some()
+                    || fuzzy_match_score(&matcher, short_name(&node.id), search_query).is_some()
+                {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<_>>();
+        let matches = Arc::new(matches);
+
+        self.search_match_cache = Some(super::super::SearchMatchCache {
+            query: search_query.to_owned(),
+            graph_revision: self.render_graph_revision,
+            matches: Arc::clone(&matches),
+        });
+
+        Some(matches)
+    }
+
     pub(in crate::app) fn draw_graph(&mut self, ui: &mut Ui) {
         if self.graph_dirty {
             self.rebuild_render_graph();
         }
 
+        let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+        let painter = ui.painter_at(rect);
+
+        draw_background(&painter, rect, self.pan, self.zoom);
+
+        self.handle_graph_zoom(ui, rect, &response);
+        self.handle_graph_pan(&response);
+
+        let interaction_active = response.dragged();
+
+        let mut physics_moving = false;
         if self.live_physics {
             let physics = PhysicsConfig {
                 intensity: self.physics_intensity,
@@ -36,40 +91,57 @@ impl ViewModel {
                 spread_force: self.physics_spread_force,
             };
             if let Some(cache) = self.graph_cache.as_mut() {
-                step_physics(cache, physics);
-                ui.ctx().request_repaint();
+                physics_moving = step_physics(cache, physics);
             }
         }
 
-        let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-        let painter = ui.painter_at(rect);
+        if physics_moving || interaction_active {
+            ui.ctx().request_repaint();
+        }
 
-        draw_background(&painter, rect, self.pan, self.zoom);
+        let pseudo_matches = self.cached_pseudo_matches();
 
-        self.handle_graph_zoom(ui, rect, &response);
-        self.handle_graph_pan(&response);
-
-        let Some(cache) = &self.graph_cache else {
+        let Some(cache) = self.graph_cache.as_mut() else {
             self.visible_node_count = 0;
             self.visible_edge_count = 0;
             ui.label("No nodes matched the current size/node filters.");
             return;
         };
 
-        let mut screen_positions = Vec::with_capacity(cache.nodes.len());
-        let mut screen_radii = Vec::with_capacity(cache.nodes.len());
+        cache.view_scratch.screen_positions.clear();
+        cache.view_scratch.screen_positions.reserve(
+            cache
+                .nodes
+                .len()
+                .saturating_sub(cache.view_scratch.screen_positions.capacity()),
+        );
+        cache.view_scratch.screen_radii.clear();
+        cache.view_scratch.screen_radii.reserve(
+            cache
+                .nodes
+                .len()
+                .saturating_sub(cache.view_scratch.screen_radii.capacity()),
+        );
         for render_node in &cache.nodes {
-            screen_positions.push(world_to_screen(
+            cache.view_scratch.screen_positions.push(world_to_screen(
                 rect,
                 self.pan,
                 self.zoom,
                 render_node.world_pos,
             ));
-            screen_radii.push((render_node.base_radius * self.zoom.powf(0.40)).clamp(2.5, 46.0));
+            cache
+                .view_scratch
+                .screen_radii
+                .push((render_node.base_radius * self.zoom.powf(0.40)).clamp(2.5, 46.0));
         }
 
         if self.show_quadtree_overlay {
-            for cell in quadtree_cells(cache) {
+            quadtree_cells(
+                &cache.nodes,
+                &mut cache.view_scratch.quadtree_positions,
+                &mut cache.view_scratch.quadtree_cells,
+            );
+            for cell in &cache.view_scratch.quadtree_cells {
                 let min = cell.center - vec2(cell.half_extent, cell.half_extent);
                 let max = cell.center + vec2(cell.half_extent, cell.half_extent);
                 let top_left = world_to_screen(rect, self.pan, self.zoom, vec2(min.x, min.y));
@@ -91,10 +163,20 @@ impl ViewModel {
             }
         }
 
-        let visible_indices = self.visible_indices(rect, &screen_positions, &screen_radii);
-        self.visible_node_count = visible_indices.len();
+        Self::visible_indices_into(
+            rect,
+            &cache.view_scratch.screen_positions,
+            &cache.view_scratch.screen_radii,
+            &mut cache.view_scratch.visible_indices,
+        );
+        self.visible_node_count = cache.view_scratch.visible_indices.len();
 
-        let hovered = self.hovered_index(ui, &visible_indices, &screen_positions, &screen_radii);
+        let hovered = Self::hovered_index(
+            ui,
+            &cache.view_scratch.visible_indices,
+            &cache.view_scratch.screen_positions,
+            &cache.view_scratch.screen_radii,
+        );
 
         if hovered.is_some() {
             ui.output_mut(|output| {
@@ -125,27 +207,9 @@ impl ViewModel {
                 || !state.root_path_nodes.is_empty()
                 || !state.root_path_edges.is_empty()
         });
-        let search_query = self.search.trim();
-        let matcher = SkimMatcherV2::default();
-        let pseudo_matches = if self.selected.is_none() && !search_query.is_empty() {
-            cache
-                .nodes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, node)| {
-                    if fuzzy_match_score(&matcher, &node.id, search_query).is_some()
-                        || fuzzy_match_score(&matcher, short_name(&node.id), search_query).is_some()
-                    {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<_>>()
-        } else {
-            HashSet::new()
-        };
-        let pseudo_active = !pseudo_matches.is_empty();
+        let pseudo_active = pseudo_matches
+            .as_ref()
+            .is_some_and(|matches| !matches.is_empty());
 
         let mut visible_edge_count = 0usize;
         for &(src, dst) in &cache.edges {
@@ -153,8 +217,8 @@ impl ViewModel {
                 continue;
             }
 
-            let start = screen_positions[src];
-            let end = screen_positions[dst];
+            let start = cache.view_scratch.screen_positions[src];
+            let end = cache.view_scratch.screen_positions[dst];
             if !edge_visible(rect, start, end, 2.5) {
                 continue;
             }
@@ -188,17 +252,21 @@ impl ViewModel {
         }
         self.visible_edge_count = visible_edge_count;
 
-        let mut indices = visible_indices;
-        indices.sort_by(|a, b| {
+        cache.view_scratch.draw_order.clear();
+        cache
+            .view_scratch
+            .draw_order
+            .extend(cache.view_scratch.visible_indices.iter().copied());
+        cache.view_scratch.draw_order.sort_by(|a, b| {
             cache.nodes[*a]
                 .metric_value
                 .cmp(&cache.nodes[*b].metric_value)
         });
 
-        for index in indices {
+        for index in cache.view_scratch.draw_order.iter().copied() {
             let render_node = &cache.nodes[index];
-            let position = screen_positions[index];
-            let radius = screen_radii[index];
+            let position = cache.view_scratch.screen_positions[index];
+            let radius = cache.view_scratch.screen_radii[index];
 
             let is_selected = self.selected.as_deref() == Some(render_node.id.as_str());
             let is_hovered = hovered_index == Some(index);
@@ -208,7 +276,9 @@ impl ViewModel {
             let is_related = highlight
                 .as_ref()
                 .is_some_and(|state| state.related_nodes.contains(&index));
-            let is_pseudo_match = pseudo_matches.contains(&index);
+            let is_pseudo_match = pseudo_matches
+                .as_ref()
+                .is_some_and(|matches| matches.contains(&index));
 
             let base_color =
                 metric_color(render_node.metric_value, cache.min_metric, cache.max_metric);

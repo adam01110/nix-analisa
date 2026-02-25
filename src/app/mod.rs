@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::thread;
 
-use eframe::egui::{self, Context, Vec2};
+use eframe::egui::{self, Context, Pos2, Vec2};
 
 use crate::nix::{collect_system_graph, SizeMetric, SystemGraph};
 
@@ -21,7 +22,7 @@ enum AppState {
     Loading {
         rx: Receiver<Result<SystemGraph, String>>,
     },
-    Ready(ViewModel),
+    Ready(Box<ViewModel>),
     Error(String),
 }
 
@@ -44,7 +45,10 @@ struct ViewModel {
     physics_spread_force: f32,
     show_quadtree_overlay: bool,
     graph_dirty: bool,
+    render_graph_revision: u64,
     graph_cache: Option<RenderGraph>,
+    search_match_cache: Option<SearchMatchCache>,
+    details_panel_cache: Option<DetailsPanelCache>,
     top_nar: Vec<String>,
     top_closure: Vec<String>,
     top_referrers: Vec<String>,
@@ -63,6 +67,26 @@ struct ViewModel {
     visible_edge_count: usize,
 }
 
+struct SearchMatchCache {
+    query: String,
+    graph_revision: u64,
+    matches: Arc<HashSet<usize>>,
+}
+
+struct DetailsPanelCache {
+    key: DetailsPanelCacheKey,
+    related_nodes: Vec<RelatedNodeEntry>,
+    shortest_path_from_root: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DetailsPanelCacheKey {
+    selected_id: String,
+    metric: SizeMetric,
+    render_graph_revision: u64,
+    related_limit: usize,
+}
+
 struct RenderGraph {
     nodes: Vec<RenderNode>,
     edges: Vec<(usize, usize)>,
@@ -72,6 +96,23 @@ struct RenderGraph {
     root_index: Option<usize>,
     min_metric: u64,
     max_metric: u64,
+    physics_scratch: PhysicsScratch,
+    view_scratch: ViewScratch,
+}
+
+struct PhysicsScratch {
+    forces: Vec<Vec2>,
+    positions: Vec<Vec2>,
+    radii: Vec<f32>,
+}
+
+struct ViewScratch {
+    screen_positions: Vec<Pos2>,
+    screen_radii: Vec<f32>,
+    visible_indices: Vec<usize>,
+    draw_order: Vec<usize>,
+    quadtree_positions: Vec<Vec2>,
+    quadtree_cells: Vec<physics::QuadtreeCell>,
 }
 
 struct RenderNode {
@@ -89,6 +130,7 @@ struct HighlightState {
     root_path_edges: HashSet<(usize, usize)>,
 }
 
+#[derive(Clone)]
 struct RelatedNodeEntry {
     id: String,
     metric_value: u64,
@@ -134,7 +176,7 @@ impl eframe::App for NixAnalyzeApp {
             AppState::Loading { rx } => {
                 if let Ok(result) = rx.try_recv() {
                     transition = Some(match result {
-                        Ok(graph) => AppState::Ready(ViewModel::new(graph)),
+                        Ok(graph) => AppState::Ready(Box::new(ViewModel::new(graph))),
                         Err(error) => AppState::Error(error),
                     });
                 }

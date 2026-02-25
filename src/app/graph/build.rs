@@ -5,10 +5,13 @@ use eframe::egui::{vec2, Vec2};
 use crate::util::stable_pair;
 
 use super::super::render_utils::node_radius;
-use super::super::{RenderGraph, RenderNode, ViewModel};
+use super::super::{PhysicsScratch, RenderGraph, RenderNode, ViewModel, ViewScratch};
 
 impl ViewModel {
     pub(in crate::app) fn rebuild_render_graph(&mut self) {
+        self.render_graph_revision = self.render_graph_revision.wrapping_add(1);
+        self.search_match_cache = None;
+
         let threshold = (self.min_size_mb.max(0.0) * 1024.0 * 1024.0) as u64;
 
         let mut ranked = self
@@ -161,6 +164,19 @@ impl ViewModel {
             root_index,
             min_metric,
             max_metric,
+            physics_scratch: PhysicsScratch {
+                forces: Vec::new(),
+                positions: Vec::new(),
+                radii: Vec::new(),
+            },
+            view_scratch: ViewScratch {
+                screen_positions: Vec::new(),
+                screen_radii: Vec::new(),
+                visible_indices: Vec::new(),
+                draw_order: Vec::new(),
+                quadtree_positions: Vec::new(),
+                quadtree_cells: Vec::new(),
+            },
         });
         if let Some(cache) = &self.graph_cache {
             self.visible_node_count = cache.nodes.len();

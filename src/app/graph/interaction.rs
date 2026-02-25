@@ -37,19 +37,26 @@ impl ViewModel {
         }
     }
 
-    pub(in crate::app) fn visible_indices(
-        &self,
+    pub(in crate::app) fn visible_indices_into(
         rect: Rect,
         screen_positions: &[Pos2],
         screen_radii: &[f32],
-    ) -> Vec<usize> {
-        (0..screen_positions.len())
-            .filter(|&index| circle_visible(rect, screen_positions[index], screen_radii[index]))
-            .collect()
+        visible_indices: &mut Vec<usize>,
+    ) {
+        visible_indices.clear();
+        visible_indices.reserve(
+            screen_positions
+                .len()
+                .saturating_sub(visible_indices.capacity()),
+        );
+        for index in 0..screen_positions.len() {
+            if circle_visible(rect, screen_positions[index], screen_radii[index]) {
+                visible_indices.push(index);
+            }
+        }
     }
 
     pub(in crate::app) fn hovered_index(
-        &self,
         ui: &Ui,
         visible_indices: &[usize],
         screen_positions: &[Pos2],

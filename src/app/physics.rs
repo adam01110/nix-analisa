@@ -1,6 +1,6 @@
 use eframe::egui::{vec2, Vec2};
 
-use super::{PhysicsConfig, RenderGraph};
+use super::{PhysicsConfig, RenderGraph, RenderNode};
 
 const QUADTREE_LEAF_CAPACITY: usize = 12;
 const QUADTREE_MAX_DEPTH: usize = 10;
@@ -182,19 +182,23 @@ fn collect_quadtree_cells(node: &QuadNode, depth: usize, cells: &mut Vec<Quadtre
     }
 }
 
-pub(in crate::app) fn quadtree_cells(cache: &RenderGraph) -> Vec<QuadtreeCell> {
-    let positions = cache
-        .nodes
-        .iter()
-        .map(|node| node.world_pos)
-        .collect::<Vec<_>>();
-    let Some(quadtree) = QuadNode::build(&positions) else {
-        return Vec::new();
+pub(in crate::app) fn quadtree_cells(
+    nodes: &[RenderNode],
+    positions: &mut Vec<Vec2>,
+    cells: &mut Vec<QuadtreeCell>,
+) {
+    positions.clear();
+    positions.reserve(nodes.len().saturating_sub(positions.capacity()));
+    for node in nodes {
+        positions.push(node.world_pos);
+    }
+
+    cells.clear();
+    let Some(quadtree) = QuadNode::build(positions) else {
+        return;
     };
 
-    let mut cells = Vec::new();
-    collect_quadtree_cells(&quadtree, 0, &mut cells);
-    cells
+    collect_quadtree_cells(&quadtree, 0, cells);
 }
 
 fn repulsion_between(
@@ -413,13 +417,34 @@ fn accumulate_collision_pairs(
     }
 }
 
-pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) {
+pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bool {
     let node_count = cache.nodes.len();
     if node_count < 2 {
-        return;
+        return false;
     }
 
-    let mut forces = vec![Vec2::ZERO; node_count];
+    let scratch = &mut cache.physics_scratch;
+    scratch.forces.resize(node_count, Vec2::ZERO);
+    scratch.forces.fill(Vec2::ZERO);
+    scratch.positions.clear();
+    scratch.radii.clear();
+    scratch
+        .positions
+        .reserve(node_count.saturating_sub(scratch.positions.capacity()));
+    scratch
+        .radii
+        .reserve(node_count.saturating_sub(scratch.radii.capacity()));
+    let mut max_radius = 0.0_f32;
+    for node in &cache.nodes {
+        scratch.positions.push(node.world_pos);
+        scratch.radii.push(node.base_radius);
+        max_radius = max_radius.max(node.base_radius);
+    }
+
+    let forces = &mut scratch.forces;
+    let positions = &scratch.positions;
+    let radii = &scratch.radii;
+
     let intensity = config.intensity.clamp(0.2, 2.5);
     let repulsion_strength = 78_000.0 * intensity * config.repulsion_scale.clamp(0.25, 2.6);
     let spring_strength = 0.016 * intensity * config.spring_scale.clamp(0.2, 2.2);
@@ -429,17 +454,6 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) {
     let root_pull = 0.022;
     let damping = (config.velocity_damping - (intensity * 0.015)).clamp(0.78, 0.97);
     let softening = 620.0;
-
-    let positions = cache
-        .nodes
-        .iter()
-        .map(|node| node.world_pos)
-        .collect::<Vec<_>>();
-    let radii = cache
-        .nodes
-        .iter()
-        .map(|node| node.base_radius)
-        .collect::<Vec<_>>();
 
     if let Some(quadtree) = QuadNode::build(&positions) {
         for (index, force) in forces.iter_mut().enumerate() {
@@ -454,18 +468,17 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) {
             );
         }
 
-        let max_radius = radii.iter().copied().fold(0.0_f32, f32::max);
         let max_collision_distance = (max_radius * 2.0) * 4.2;
         if max_collision_distance > 0.0 {
             accumulate_collision_pairs(
                 &quadtree,
                 &quadtree,
                 true,
-                &positions,
-                &radii,
+                positions,
+                radii,
                 collision_strength,
                 max_collision_distance * max_collision_distance,
-                &mut forces,
+                forces,
             );
         }
     }
@@ -545,6 +558,7 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) {
 
     let max_force = 165.0 + (intensity * 90.0);
     let max_speed = 11.0 + (intensity * 15.0);
+    let mut any_motion = false;
     for index in 0..node_count {
         let mut force = forces[index];
         let mut force_magnitude = force.length();
@@ -566,5 +580,10 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) {
 
         cache.nodes[index].velocity = velocity;
         cache.nodes[index].world_pos += velocity;
+        if velocity.length_sq() > 0.000_001 {
+            any_motion = true;
+        }
     }
+
+    any_motion
 }

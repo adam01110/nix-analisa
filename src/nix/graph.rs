@@ -78,38 +78,39 @@ impl SystemGraph {
     }
 
     pub fn shortest_path_from_root(&self, target: &str) -> Option<Vec<String>> {
-        if !self.nodes.contains_key(target) {
-            return None;
-        }
+        let target = self.nodes.get_key_value(target)?.0.as_str();
+        let root = self.root_id.as_str();
 
-        if target == self.root_id {
+        if target == root {
             return Some(vec![self.root_id.clone()]);
         }
 
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
-        let mut parent: HashMap<String, String> = HashMap::new();
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut parent: HashMap<&str, &str> = HashMap::new();
 
-        queue.push_back(self.root_id.clone());
-        visited.insert(self.root_id.clone());
+        queue.push_back(root);
+        visited.insert(root);
 
         while let Some(current) = queue.pop_front() {
             if current == target {
                 break;
             }
 
-            let Some(node) = self.nodes.get(&current) else {
+            let Some(node) = self.nodes.get(current) else {
                 continue;
             };
 
             for next in &node.references {
-                if !self.nodes.contains_key(next) || visited.contains(next) {
+                let Some((next_key, _)) = self.nodes.get_key_value(next.as_str()) else {
                     continue;
-                }
+                };
+                let next_key = next_key.as_str();
 
-                visited.insert(next.clone());
-                parent.insert(next.clone(), current.clone());
-                queue.push_back(next.clone());
+                if visited.insert(next_key) {
+                    parent.insert(next_key, current);
+                    queue.push_back(next_key);
+                }
             }
         }
 
@@ -118,13 +119,12 @@ impl SystemGraph {
         }
 
         let mut path = Vec::new();
-        let mut cursor = target.to_string();
-        path.push(cursor.clone());
+        let mut cursor = target;
+        path.push(cursor.to_owned());
 
-        while cursor != self.root_id {
-            let prev = parent.get(&cursor)?;
-            cursor = prev.clone();
-            path.push(cursor.clone());
+        while cursor != root {
+            cursor = *parent.get(cursor)?;
+            path.push(cursor.to_owned());
         }
 
         path.reverse();

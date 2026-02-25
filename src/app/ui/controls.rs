@@ -122,24 +122,19 @@ impl ViewModel {
 
         ui.separator();
 
-        let primary_ranking = if self.metric == SizeMetric::NarSize {
-            self.top_nar.clone()
-        } else {
-            self.top_closure.clone()
-        };
-
         ui.label(RichText::new(format!("Top by {}", self.metric.label())).strong());
-        self.draw_metric_ranking(ui, &primary_ranking, self.metric);
+        self.draw_metric_ranking(ui, self.metric);
 
         ui.add_space(8.0);
         ui.label(RichText::new("Top by reverse dependencies").strong());
-        let top_referrers = self.top_referrers.clone();
-        self.draw_referrer_ranking(ui, &top_referrers);
+        self.draw_referrer_ranking(ui);
     }
 
-    fn draw_metric_ranking(&mut self, ui: &mut Ui, ids: &[String], metric: SizeMetric) {
-        let row_count = ids.len().min(self.metric_rows_visible);
+    fn draw_metric_ranking(&mut self, ui: &mut Ui, metric: SizeMetric) {
+        let ids_len = self.metric_ids(metric).len();
+        let row_count = ids_len.min(self.metric_rows_visible);
         let mut should_load_more = false;
+        let mut selected_id = None;
 
         egui::ScrollArea::vertical()
             .id_salt("metric_ranking_scroll")
@@ -151,7 +146,7 @@ impl ViewModel {
                 }
 
                 for index in row_range {
-                    let Some(id) = ids.get(index) else {
+                    let Some(id) = self.metric_ids(metric).get(index) else {
                         continue;
                     };
                     let Some(node) = self.graph.nodes.get(id) else {
@@ -173,19 +168,25 @@ impl ViewModel {
                         .inner;
 
                     if row_response {
-                        self.set_selected(Some(id.clone()));
+                        selected_id = Some(id.clone());
                     }
                 }
             });
 
-        if should_load_more && row_count < ids.len() {
-            self.metric_rows_visible = (row_count + Self::RANKING_PAGE_ROWS).min(ids.len());
+        if let Some(id) = selected_id {
+            self.set_selected(Some(id));
+        }
+
+        if should_load_more && row_count < ids_len {
+            self.metric_rows_visible = (row_count + Self::RANKING_PAGE_ROWS).min(ids_len);
         }
     }
 
-    fn draw_referrer_ranking(&mut self, ui: &mut Ui, ids: &[String]) {
-        let row_count = ids.len().min(self.referrer_rows_visible);
+    fn draw_referrer_ranking(&mut self, ui: &mut Ui) {
+        let ids_len = self.top_referrers.len();
+        let row_count = ids_len.min(self.referrer_rows_visible);
         let mut should_load_more = false;
+        let mut selected_id = None;
 
         egui::ScrollArea::vertical()
             .id_salt("referrer_ranking_scroll")
@@ -197,7 +198,7 @@ impl ViewModel {
                 }
 
                 for index in row_range {
-                    let Some(id) = ids.get(index) else {
+                    let Some(id) = self.top_referrers.get(index) else {
                         continue;
                     };
                     let Some(node) = self.graph.nodes.get(id) else {
@@ -219,13 +220,24 @@ impl ViewModel {
                         .inner;
 
                     if row_response {
-                        self.set_selected(Some(id.clone()));
+                        selected_id = Some(id.clone());
                     }
                 }
             });
 
-        if should_load_more && row_count < ids.len() {
-            self.referrer_rows_visible = (row_count + Self::RANKING_PAGE_ROWS).min(ids.len());
+        if let Some(id) = selected_id {
+            self.set_selected(Some(id));
+        }
+
+        if should_load_more && row_count < ids_len {
+            self.referrer_rows_visible = (row_count + Self::RANKING_PAGE_ROWS).min(ids_len);
+        }
+    }
+
+    fn metric_ids(&self, metric: SizeMetric) -> &[String] {
+        match metric {
+            SizeMetric::NarSize => &self.top_nar,
+            SizeMetric::ClosureSize => &self.top_closure,
         }
     }
 }

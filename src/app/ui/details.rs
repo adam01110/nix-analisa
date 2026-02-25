@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText, Ui};
 use crate::util::{format_bytes, short_name};
 
 use super::super::highlight::build_highlight_state;
-use super::super::{RelatedNodeEntry, ViewModel};
+use super::super::{DetailsPanelCache, DetailsPanelCacheKey, RelatedNodeEntry, ViewModel};
 
 impl ViewModel {
     pub(in crate::app) fn draw_details(&mut self, ui: &mut Ui) {
@@ -31,7 +31,7 @@ impl ViewModel {
         let referrer_count = node.referrers.len();
         let deriver = node.deriver.clone();
 
-        let related_nodes = self.related_nodes_for_details(&selected_id, 32);
+        let (related_nodes, shortest_path_from_root) = self.details_panel_data(&selected_id, 32);
 
         ui.label(RichText::new(node_short).strong());
         ui.small(node_id.as_str());
@@ -126,7 +126,7 @@ impl ViewModel {
 
         ui.separator();
         ui.label(RichText::new("Shortest path from root").strong());
-        if let Some(path) = self.graph.shortest_path_from_root(&selected_id) {
+        if let Some(path) = shortest_path_from_root {
             let rendered = if path.len() <= 14 {
                 path.iter()
                     .map(|id| short_name(id).to_string())
@@ -153,7 +153,56 @@ impl ViewModel {
         }
     }
 
-    fn related_nodes_for_details(&self, selected_id: &str, limit: usize) -> Vec<RelatedNodeEntry> {
+    fn details_panel_data(
+        &mut self,
+        selected_id: &str,
+        related_limit: usize,
+    ) -> (Vec<RelatedNodeEntry>, Option<Vec<String>>) {
+        let key = DetailsPanelCacheKey {
+            selected_id: selected_id.to_string(),
+            metric: self.metric,
+            render_graph_revision: self.render_graph_revision,
+            related_limit,
+        };
+
+        if let Some(cache) = &self.details_panel_cache {
+            if cache.key == key {
+                return (
+                    cache.related_nodes.clone(),
+                    cache.shortest_path_from_root.clone(),
+                );
+            }
+        }
+
+        let shortest_path_from_root = self.graph.shortest_path_from_root(selected_id);
+        let related_nodes = self.related_nodes_for_details(
+            selected_id,
+            related_limit,
+            shortest_path_from_root.as_deref(),
+        );
+
+        self.details_panel_cache = Some(DetailsPanelCache {
+            key,
+            related_nodes,
+            shortest_path_from_root,
+        });
+
+        let cache = self
+            .details_panel_cache
+            .as_ref()
+            .expect("details panel cache is initialized");
+        (
+            cache.related_nodes.clone(),
+            cache.shortest_path_from_root.clone(),
+        )
+    }
+
+    fn related_nodes_for_details(
+        &self,
+        selected_id: &str,
+        limit: usize,
+        shortest_path_from_root: Option<&[String]>,
+    ) -> Vec<RelatedNodeEntry> {
         if limit == 0 {
             return Vec::new();
         }
@@ -179,13 +228,13 @@ impl ViewModel {
             }
         }
 
-        if let Some(path) = self.graph.shortest_path_from_root(selected_id) {
+        if let Some(path) = shortest_path_from_root {
             for id in path {
                 if id == selected_id {
                     continue;
                 }
 
-                if let Some(related_node) = self.graph.nodes.get(&id) {
+                if let Some(related_node) = self.graph.nodes.get(id) {
                     let entry = related_by_id.entry(id.clone()).or_insert(RelatedNodeEntry {
                         id: id.clone(),
                         metric_value: related_node.metric(self.metric),
