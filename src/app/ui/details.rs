@@ -22,28 +22,24 @@ impl ViewModel {
             return;
         };
 
-        let node_id = node.id.clone();
         let node_short = short_name(&node.id).to_string();
-        let full_path = node.full_path.clone();
         let nar_size = node.nar_size;
         let closure_size = node.closure_size;
         let reference_count = node.references.len();
         let referrer_count = node.referrers.len();
-        let deriver = node.deriver.clone();
-
-        let (related_nodes, shortest_path_from_root) = self.details_panel_data(&selected_id, 32);
+        let deriver = node.deriver.as_deref();
 
         ui.label(RichText::new(node_short).strong());
-        ui.small(node_id.as_str());
+        ui.small(node.id.as_str());
         ui.add_space(6.0);
 
-        ui.label(format!("Full path: {full_path}"));
+        ui.label(format!("Full path: {}", node.full_path));
         ui.label(format!("Node size (narSize): {}", format_bytes(nar_size)));
         ui.label(format!("Closure size: {}", format_bytes(closure_size)));
         ui.label(format!("Direct dependencies: {reference_count}"));
         ui.label(format!("Reverse dependencies: {referrer_count}"));
 
-        if let Some(deriver) = &deriver {
+        if let Some(deriver) = deriver {
             ui.label(format!("Deriver: {deriver}"));
         }
 
@@ -52,6 +48,8 @@ impl ViewModel {
             "Transitive-only weight: {}",
             format_bytes(transitive_delta)
         ));
+
+        let (related_nodes, shortest_path_from_root) = self.details_panel_data(&selected_id, 32);
 
         ui.separator();
         ui.label(RichText::new("Why this can be large").strong());
@@ -203,11 +201,19 @@ impl ViewModel {
         limit: usize,
         shortest_path_from_root: Option<&[String]>,
     ) -> Vec<RelatedNodeEntry> {
+        #[derive(Default)]
+        struct RelatedNodeFlags {
+            metric_value: u64,
+            is_root_path: bool,
+            is_direct: bool,
+            is_in_view: bool,
+        }
+
         if limit == 0 {
             return Vec::new();
         }
 
-        let mut related_by_id: HashMap<String, RelatedNodeEntry> = HashMap::new();
+        let mut related_by_id: HashMap<String, RelatedNodeFlags> = HashMap::new();
 
         if let Some(node) = self.graph.nodes.get(selected_id) {
             for id in node.references.iter().chain(node.referrers.iter()) {
@@ -216,12 +222,9 @@ impl ViewModel {
                 }
 
                 if let Some(related_node) = self.graph.nodes.get(id) {
-                    let entry = related_by_id.entry(id.clone()).or_insert(RelatedNodeEntry {
-                        id: id.clone(),
+                    let entry = related_by_id.entry(id.clone()).or_insert(RelatedNodeFlags {
                         metric_value: related_node.metric(self.metric),
-                        is_root_path: false,
-                        is_direct: false,
-                        is_in_view: false,
+                        ..Default::default()
                     });
                     entry.is_direct = true;
                 }
@@ -235,12 +238,9 @@ impl ViewModel {
                 }
 
                 if let Some(related_node) = self.graph.nodes.get(id) {
-                    let entry = related_by_id.entry(id.clone()).or_insert(RelatedNodeEntry {
-                        id: id.clone(),
+                    let entry = related_by_id.entry(id.clone()).or_insert(RelatedNodeFlags {
                         metric_value: related_node.metric(self.metric),
-                        is_root_path: false,
-                        is_direct: false,
-                        is_in_view: false,
+                        ..Default::default()
                     });
                     entry.is_root_path = true;
                 }
@@ -276,17 +276,14 @@ impl ViewModel {
 
                     if let Some(render_node) = cache.nodes.get(*index) {
                         let entry = related_by_id.entry(render_node.id.clone()).or_insert(
-                            RelatedNodeEntry {
-                                id: render_node.id.clone(),
+                            RelatedNodeFlags {
                                 metric_value: self
                                     .graph
                                     .nodes
                                     .get(&render_node.id)
                                     .map(|node| node.metric(self.metric))
                                     .unwrap_or(render_node.metric_value),
-                                is_root_path: false,
-                                is_direct: false,
-                                is_in_view: false,
+                                ..Default::default()
                             },
                         );
 
@@ -299,7 +296,16 @@ impl ViewModel {
             }
         }
 
-        let mut related = related_by_id.into_values().collect::<Vec<_>>();
+        let mut related = related_by_id
+            .into_iter()
+            .map(|(id, flags)| RelatedNodeEntry {
+                id,
+                metric_value: flags.metric_value,
+                is_root_path: flags.is_root_path,
+                is_direct: flags.is_direct,
+                is_in_view: flags.is_in_view,
+            })
+            .collect::<Vec<_>>();
 
         related.sort_by(|a, b| {
             b.is_in_view

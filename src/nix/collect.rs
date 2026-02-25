@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
 use super::graph::{NodeRecord, SystemGraph};
 use super::nix_cmd::run_nix;
@@ -43,7 +43,7 @@ pub fn collect_system_graph(system_path: &str) -> Result<SystemGraph> {
         }
 
         let full_path = if raw_key.starts_with('/') {
-            raw_key.clone()
+            raw_key
         } else {
             format!("{store_dir}/{id}")
         };

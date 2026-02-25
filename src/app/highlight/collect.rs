@@ -13,15 +13,15 @@ pub(super) fn collect_related_paths_by_id(
     const RELATED_DEPTH: usize = 1;
     const RELATED_NODE_LIMIT: usize = 280;
 
-    let mut queue = VecDeque::from([(selected_id.to_string(), 0usize)]);
-    let mut visited = HashSet::from([selected_id.to_string()]);
+    let mut queue = VecDeque::from([(selected_id, 0usize)]);
+    let mut visited = HashSet::from([selected_id]);
 
     while let Some((node_id, depth)) = queue.pop_front() {
         if depth >= RELATED_DEPTH {
             continue;
         }
 
-        let Some(node) = graph.nodes.get(&node_id) else {
+        let Some(node) = graph.nodes.get(node_id) else {
             continue;
         };
         let neighbors = if forward {
@@ -32,9 +32,9 @@ pub(super) fn collect_related_paths_by_id(
 
         for next_id in neighbors.iter().take(160) {
             let (source_id, target_id) = if forward {
-                (node_id.as_str(), next_id.as_str())
+                (node_id, next_id.as_str())
             } else {
-                (next_id.as_str(), node_id.as_str())
+                (next_id.as_str(), node_id)
             };
 
             let source_index = index_by_id.get(source_id).copied();
@@ -55,8 +55,9 @@ pub(super) fn collect_related_paths_by_id(
                 return;
             }
 
-            if visited.insert(next_id.clone()) {
-                queue.push_back((next_id.clone(), depth + 1));
+            let next_id = next_id.as_str();
+            if visited.insert(next_id) {
+                queue.push_back((next_id, depth + 1));
             }
         }
     }

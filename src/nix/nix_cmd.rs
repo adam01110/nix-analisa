@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
 pub(super) fn run_nix(args: &[&str]) -> Result<String> {
     let output = Command::new("nix")

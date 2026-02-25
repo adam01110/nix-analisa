@@ -25,7 +25,7 @@ impl ViewModel {
                     id == &self.graph.root_id || self.selected.as_deref() == Some(id.as_str());
 
                 if metric >= threshold || always_include {
-                    Some((metric, id.clone()))
+                    Some((metric, id.as_str()))
                 } else {
                     None
                 }
@@ -39,12 +39,12 @@ impl ViewModel {
         let mut ids = Vec::new();
 
         if self.graph.nodes.contains_key(&self.graph.root_id) {
-            selected.insert(self.graph.root_id.clone());
+            selected.insert(self.graph.root_id.as_str());
             ids.push(self.graph.root_id.clone());
         }
 
         if let Some(selected_id) = &self.selected {
-            if self.graph.nodes.contains_key(selected_id) && selected.insert(selected_id.clone()) {
+            if self.graph.nodes.contains_key(selected_id) && selected.insert(selected_id.as_str()) {
                 ids.push(selected_id.clone());
             }
         }
@@ -53,8 +53,8 @@ impl ViewModel {
             if ids.len() >= target_nodes {
                 break;
             }
-            if selected.insert(id.clone()) {
-                ids.push(id);
+            if selected.insert(id) {
+                ids.push(id.to_string());
             }
         }
 

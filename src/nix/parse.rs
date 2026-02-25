@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -28,8 +28,14 @@ pub(super) fn parse_path_info_output(raw: &str) -> Result<(String, HashMap<Strin
             .and_then(Value::as_str)
             .unwrap_or("/nix/store")
             .to_string();
-        let info: HashMap<String, RawPathInfo> =
-            serde_json::from_value(info_value.clone()).context("invalid info map in JSON")?;
+        let info_object = info_value
+            .as_object()
+            .ok_or_else(|| anyhow!("invalid info map in JSON"))?;
+        let mut info = HashMap::with_capacity(info_object.len());
+        for (key, value) in info_object {
+            let entry = RawPathInfo::deserialize(value).context("invalid info map in JSON")?;
+            info.insert(key.clone(), entry);
+        }
         return Ok((store_dir, info));
     }
 
@@ -45,7 +51,7 @@ pub(super) fn parse_path_info_output(raw: &str) -> Result<(String, HashMap<Strin
             continue;
         }
 
-        if let Ok(entry) = serde_json::from_value::<RawPathInfo>(value.clone()) {
+        if let Ok(entry) = RawPathInfo::deserialize(value) {
             info.insert(key.clone(), entry);
         }
     }

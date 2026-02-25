@@ -13,6 +13,7 @@ struct Args {
 
 fn main() -> eframe::Result<()> {
     let args = Args::parse();
+    let system_path = args.system_path;
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1440.0, 920.0]),
         ..Default::default()
@@ -21,11 +22,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "nix-analisá",
         options,
-        Box::new(move |cc| {
-            Ok(Box::new(app::NixAnalyzeApp::new(
-                cc,
-                args.system_path.clone(),
-            )))
-        }),
+        Box::new(move |cc| Ok(Box::new(app::NixAnalyzeApp::new(cc, system_path)))),
     )
 }
