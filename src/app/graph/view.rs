@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
-use eframe::egui::{self, Align2, Color32, FontId, Sense, Stroke, Ui, vec2};
-use fuzzy_matcher::FuzzyMatcher;
+use eframe::egui::{self, vec2, Align2, Color32, FontId, Sense, Stroke, Ui};
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 
 use crate::util::{format_bytes, short_name};
 
 use super::super::highlight::{build_highlight_state, build_highlight_state_for_selected_id};
-use super::super::physics::step_physics;
+use super::super::physics::{quadtree_cells, step_physics};
 use super::super::render_utils::{
     blend_color, dim_color, draw_background, edge_visible, metric_color, world_to_screen,
 };
@@ -66,6 +66,29 @@ impl ViewModel {
                 render_node.world_pos,
             ));
             screen_radii.push((render_node.base_radius * self.zoom.powf(0.40)).clamp(2.5, 46.0));
+        }
+
+        if self.show_quadtree_overlay {
+            for cell in quadtree_cells(cache) {
+                let min = cell.center - vec2(cell.half_extent, cell.half_extent);
+                let max = cell.center + vec2(cell.half_extent, cell.half_extent);
+                let top_left = world_to_screen(rect, self.pan, self.zoom, vec2(min.x, min.y));
+                let top_right = world_to_screen(rect, self.pan, self.zoom, vec2(max.x, min.y));
+                let bottom_right = world_to_screen(rect, self.pan, self.zoom, vec2(max.x, max.y));
+                let bottom_left = world_to_screen(rect, self.pan, self.zoom, vec2(min.x, max.y));
+
+                let alpha = if cell.is_leaf { 110 } else { 55 };
+                let line_width = (1.4 - (cell.depth as f32 * 0.09)).clamp(0.45, 1.4);
+                let stroke = Stroke::new(
+                    line_width,
+                    Color32::from_rgba_unmultiplied(106, 198, 255, alpha),
+                );
+
+                painter.line_segment([top_left, top_right], stroke);
+                painter.line_segment([top_right, bottom_right], stroke);
+                painter.line_segment([bottom_right, bottom_left], stroke);
+                painter.line_segment([bottom_left, top_left], stroke);
+            }
         }
 
         let visible_indices = self.visible_indices(rect, &screen_positions, &screen_radii);
@@ -226,11 +249,9 @@ impl ViewModel {
             );
 
             let highlighted = is_selected || is_root_path || is_related;
-            let should_draw_label = is_selected
+            let should_draw_label = highlighted
                 || is_hovered
-                || (highlighted && self.zoom > 0.45)
                 || (is_pseudo_match && self.zoom > 0.35)
-                || (selection_active && radius > 10.5)
                 || radius > 17.0
                 || self.zoom > 1.35;
             if should_draw_label {

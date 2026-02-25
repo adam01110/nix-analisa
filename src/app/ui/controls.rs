@@ -44,6 +44,8 @@ impl ViewModel {
 
         ui.checkbox(&mut self.live_physics, "Live physics simulation")
             .on_hover_text("Continuously simulate layout forces while viewing the graph.");
+        ui.checkbox(&mut self.show_quadtree_overlay, "Show quadtree overlay")
+            .on_hover_text("Draw the active quadtree partitions over the graph canvas.");
 
         ui.collapsing("Physics tuning", |ui| {
             ui.add(

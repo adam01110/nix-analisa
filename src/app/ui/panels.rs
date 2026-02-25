@@ -37,6 +37,7 @@ impl ViewModel {
             physics_velocity_damping: 0.9,
             physics_target_spread: 2.0,
             physics_spread_force: 0.08,
+            show_quadtree_overlay: false,
             graph_dirty: true,
             graph_cache: None,
             top_nar,

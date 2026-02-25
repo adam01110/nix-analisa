@@ -4,7 +4,7 @@ use std::thread;
 
 use eframe::egui::{self, Context, Vec2};
 
-use crate::nix::{SizeMetric, SystemGraph, collect_system_graph};
+use crate::nix::{collect_system_graph, SizeMetric, SystemGraph};
 
 mod graph;
 mod highlight;
@@ -42,6 +42,7 @@ struct ViewModel {
     physics_velocity_damping: f32,
     physics_target_spread: f32,
     physics_spread_force: f32,
+    show_quadtree_overlay: bool,
     graph_dirty: bool,
     graph_cache: Option<RenderGraph>,
     top_nar: Vec<String>,

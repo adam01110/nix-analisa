@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use eframe::egui::{Vec2, vec2};
+use eframe::egui::{vec2, Vec2};
 
 use crate::util::stable_pair;
 
