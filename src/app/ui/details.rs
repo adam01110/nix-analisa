@@ -106,7 +106,7 @@ impl ViewModel {
                         let label = format!(
                             "{}  ({})  [{}]",
                             short_name(&related.id),
-                            format_bytes(related.metric_value),
+                            Self::format_metric_value(self.metric, related.metric_value),
                             flags.join(", ")
                         );
 

@@ -5,7 +5,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2}
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-use crate::util::{format_bytes, short_name};
+use crate::util::short_name;
 
 use super::super::highlight::build_highlight_state_for_selected_id;
 use super::super::physics::{quadtree_cells, step_physics};
@@ -137,6 +137,10 @@ impl ViewModel {
         let zoom = self.zoom;
         let show_quadtree_overlay = self.show_quadtree_overlay;
         let interaction_active = response.dragged();
+        let frame_delta_seconds = ui
+            .ctx()
+            .input(|input| input.stable_dt)
+            .clamp(1.0 / 240.0, 1.0 / 20.0);
         let physics = PhysicsConfig {
             intensity: self.physics_intensity,
             repulsion_scale: self.physics_repulsion,
@@ -145,6 +149,7 @@ impl ViewModel {
             velocity_damping: self.physics_velocity_damping,
             target_spread: self.physics_target_spread,
             spread_force: self.physics_spread_force,
+            delta_seconds: frame_delta_seconds,
         };
 
         let Some(cache) = self.graph_cache.as_mut() else {
@@ -250,9 +255,11 @@ impl ViewModel {
 
         let zoom_sqrt = self.zoom.sqrt();
         let edge_detail = ((self.zoom - 0.35) / 0.95).clamp(0.0, 1.0);
-        let short_edge_min_length = 1.5 + (1.0 - edge_detail) * 2.0;
+        let short_edge_min_length = 2.0 + (1.0 - edge_detail) * 3.0;
         let short_edge_min_length_sq = short_edge_min_length * short_edge_min_length;
-        let low_zoom_edge_stride = if self.zoom < 0.28 {
+        let low_zoom_edge_stride = if self.zoom < 0.35 {
+            3usize
+        } else if self.zoom < 0.55 {
             2usize
         } else {
             1usize
@@ -311,17 +318,19 @@ impl ViewModel {
                 let key = ((cell_x as u32 as u64) << 32) | (cell_y as u32 as u64);
                 let density = edge_density_by_cell.get(&key).copied().unwrap_or(0) as usize;
 
-                let mut density_stride = if density > 140 {
+                let mut density_stride = if density > 110 {
+                    4usize
+                } else if density > 70 {
                     3usize
-                } else if density > 90 {
+                } else if density > 40 {
                     2usize
                 } else {
                     1usize
                 };
-                if edge_detail > 0.82 {
-                    density_stride = 1;
-                } else if edge_detail > 0.65 {
+                if edge_detail > 0.88 {
                     density_stride = density_stride.min(2);
+                } else if edge_detail > 0.70 {
+                    density_stride = density_stride.min(3);
                 }
 
                 let stride = density_stride.max(low_zoom_edge_stride);
@@ -332,7 +341,7 @@ impl ViewModel {
                     }
                 }
 
-                let apply_length_filter = density > 70 || self.zoom < 0.24;
+                let apply_length_filter = density > 40 || self.zoom < 0.38;
                 if apply_length_filter && (end - start).length_sq() < short_edge_min_length_sq {
                     continue;
                 }
@@ -349,13 +358,13 @@ impl ViewModel {
                     Color32::from_rgb(241, 146, 94),
                 )
             } else if highlight.is_some() {
-                let edge_alpha = (42.0 + edge_detail * 86.0) as u8;
+                let edge_alpha = (120.0 + edge_detail * 48.0) as u8;
                 (
                     (0.82 * zoom_sqrt).clamp(0.45, 2.0),
                     Color32::from_rgba_unmultiplied(80, 90, 104, edge_alpha),
                 )
             } else {
-                let edge_alpha = (48.0 + edge_detail * 124.0) as u8;
+                let edge_alpha = (160.0 + edge_detail * 56.0) as u8;
                 (
                     (1.18 * zoom_sqrt).clamp(0.60, 3.4),
                     Color32::from_rgba_unmultiplied(72, 72, 72, edge_alpha),
@@ -366,6 +375,9 @@ impl ViewModel {
             visible_edge_count += 1;
         }
         self.visible_edge_count = visible_edge_count;
+
+        let selected_color = Color32::from_rgb(245, 206, 93);
+        let mut selection_animating = false;
 
         Self::ensure_draw_order(cache);
         for index in cache.view_scratch.draw_order.iter().copied() {
@@ -397,9 +409,7 @@ impl ViewModel {
 
             let base_color =
                 metric_color(render_node.metric_value, cache.min_metric, cache.max_metric);
-            let color = if is_selected {
-                Color32::from_rgb(245, 206, 93)
-            } else if is_hovered {
+            let unselected_color = if is_hovered {
                 Color32::from_rgb(255, 164, 101)
             } else if is_root_path {
                 blend_color(base_color, Color32::from_rgb(247, 194, 111), 0.72)
@@ -408,29 +418,48 @@ impl ViewModel {
             } else if is_pseudo_match {
                 blend_color(base_color, Color32::from_rgb(103, 196, 255), 0.68)
             } else if selection_active {
-                dim_color(base_color, 0.30)
+                dim_color(base_color, 0.52)
             } else if pseudo_active {
-                dim_color(base_color, 0.22)
+                dim_color(base_color, 0.38)
             } else {
                 base_color
             };
 
+            let selection_mix = ui.ctx().animate_bool(
+                ui.make_persistent_id(("node-selection", render_node.id.as_str())),
+                is_selected,
+            );
+            if selection_mix > 0.0 && selection_mix < 1.0 {
+                selection_animating = true;
+            }
+
+            let color = blend_color(unselected_color, selected_color, selection_mix);
+
             painter.circle_filled(position, radius, color);
+            if selection_mix > 0.0 {
+                let halo_strength = (selection_mix * (1.0 - selection_mix) * 4.0).clamp(0.0, 1.0);
+                let halo_alpha = (30.0 + (halo_strength * 145.0)) as u8;
+                painter.circle_stroke(
+                    position,
+                    radius + 4.0 + ((1.0 - selection_mix) * 6.0),
+                    Stroke::new(
+                        1.0 + (halo_strength * 1.6),
+                        Color32::from_rgba_unmultiplied(245, 206, 93, halo_alpha),
+                    ),
+                );
+            }
+
+            let stroke_width = if is_root_path {
+                1.8
+            } else if is_pseudo_match {
+                1.55
+            } else {
+                1.0
+            } + (selection_mix * 1.2);
             painter.circle_stroke(
                 position,
                 radius,
-                Stroke::new(
-                    if is_selected {
-                        2.2
-                    } else if is_root_path {
-                        1.8
-                    } else if is_pseudo_match {
-                        1.55
-                    } else {
-                        1.0
-                    },
-                    Color32::from_rgba_unmultiplied(15, 15, 15, 190),
-                ),
+                Stroke::new(stroke_width, Color32::from_rgba_unmultiplied(15, 15, 15, 190)),
             );
 
             let highlighted = is_selected || is_root_path || is_related;
@@ -450,13 +479,17 @@ impl ViewModel {
             }
         }
 
+        if selection_animating {
+            ui.ctx().request_repaint();
+        }
+
         if let Some((hovered_index, _)) = hovered
             && let Some(node) = self.graph.nodes.get(&cache.nodes[hovered_index].id)
         {
             let panel_text = format!(
                 "{}  |  {}  |  refs {}",
                 short_name(&node.id),
-                format_bytes(node.metric(self.metric)),
+                Self::format_metric_value(self.metric, node.metric(self.metric)),
                 node.references.len()
             );
             painter.text(

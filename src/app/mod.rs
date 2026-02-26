@@ -6,6 +6,7 @@ use std::thread;
 use eframe::egui::{self, Context, Pos2, Vec2};
 
 use crate::nix::{SizeMetric, SystemGraph, collect_system_graph};
+use crate::util::format_bytes;
 
 mod graph;
 mod highlight;
@@ -25,6 +26,12 @@ enum AppState {
     },
     Ready(Box<ViewModel>),
     Error(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DependencyRankingMode {
+    TopDependencies,
+    TopReverseDependencies,
 }
 
 struct ViewModel {
@@ -52,10 +59,13 @@ struct ViewModel {
     details_panel_cache: Option<DetailsPanelCache>,
     top_nar: Vec<String>,
     top_closure: Vec<String>,
+    top_dependencies: Vec<String>,
     top_referrers: Vec<String>,
     nar_rows_visible: usize,
     closure_rows_visible: usize,
+    dependency_rows_visible: usize,
     referrer_rows_visible: usize,
+    dependency_ranking_mode: DependencyRankingMode,
     related_rows_visible: usize,
     show_fps_bar: bool,
     fps_show_current: bool,
@@ -152,6 +162,7 @@ struct PhysicsConfig {
     velocity_damping: f32,
     target_spread: f32,
     spread_force: f32,
+    delta_seconds: f32,
 }
 
 impl NixAnalyzeApp {
@@ -247,6 +258,40 @@ impl eframe::App for NixAnalyzeApp {
         if let Some(next_state) = transition {
             self.reload_rx = None;
             self.state = next_state;
+        }
+    }
+}
+
+impl ViewModel {
+    pub(in crate::app) fn metric_threshold_value(&self) -> u64 {
+        if self.metric.is_byte_metric() {
+            (self.min_size_mb.max(0.0) * 1024.0 * 1024.0) as u64
+        } else {
+            self.min_size_mb.max(0.0).round() as u64
+        }
+    }
+
+    pub(in crate::app) fn min_threshold_label(&self) -> &'static str {
+        if self.metric.is_byte_metric() {
+            "Min node size (MiB)"
+        } else {
+            "Min dependency count"
+        }
+    }
+
+    pub(in crate::app) fn min_threshold_max(&self) -> f32 {
+        if self.metric.is_byte_metric() {
+            4096.0
+        } else {
+            self.graph.node_count().max(1) as f32
+        }
+    }
+
+    pub(in crate::app) fn format_metric_value(metric: SizeMetric, value: u64) -> String {
+        match metric {
+            SizeMetric::NarSize | SizeMetric::ClosureSize => format_bytes(value),
+            SizeMetric::Dependencies => format!("{value} deps"),
+            SizeMetric::ReverseDependencies => format!("{value} refs"),
         }
     }
 }

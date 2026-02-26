@@ -4,13 +4,21 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub enum SizeMetric {
     NarSize,
     ClosureSize,
+    Dependencies,
+    ReverseDependencies,
 }
 
 impl SizeMetric {
+    pub fn is_byte_metric(self) -> bool {
+        matches!(self, Self::NarSize | Self::ClosureSize)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::NarSize => "narSize",
             Self::ClosureSize => "closureSize",
+            Self::Dependencies => "dependencies",
+            Self::ReverseDependencies => "reverse dependencies",
         }
     }
 }
@@ -31,6 +39,8 @@ impl NodeRecord {
         match metric {
             SizeMetric::NarSize => self.nar_size,
             SizeMetric::ClosureSize => self.closure_size,
+            SizeMetric::Dependencies => self.references.len() as u64,
+            SizeMetric::ReverseDependencies => self.referrers.len() as u64,
         }
     }
 }
@@ -71,6 +81,21 @@ impl SystemGraph {
                 .referrers
                 .len()
                 .cmp(&a_node.referrers.len())
+                .then_with(|| b_node.nar_size.cmp(&a_node.nar_size))
+        });
+        ids.truncate(limit);
+        ids
+    }
+
+    pub fn top_by_dependencies(&self, limit: usize) -> Vec<String> {
+        let mut ids = self.nodes.keys().cloned().collect::<Vec<_>>();
+        ids.sort_by(|a, b| {
+            let a_node = self.nodes.get(a).expect("node exists");
+            let b_node = self.nodes.get(b).expect("node exists");
+            b_node
+                .references
+                .len()
+                .cmp(&a_node.references.len())
                 .then_with(|| b_node.nar_size.cmp(&a_node.nar_size))
         });
         ids.truncate(limit);

@@ -1,4 +1,4 @@
-use eframe::egui::{Vec2, vec2};
+use eframe::egui::{vec2, Vec2};
 
 const QUADTREE_LEAF_CAPACITY: usize = 12;
 const QUADTREE_MAX_DEPTH: usize = 10;

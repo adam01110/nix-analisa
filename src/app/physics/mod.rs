@@ -1,12 +1,12 @@
 mod forces;
 mod quadtree;
 
-use eframe::egui::{Vec2, vec2};
+use eframe::egui::{vec2, Vec2};
 
 use super::{PhysicsConfig, RenderGraph, RenderNode};
-use forces::{CollisionParams, accumulate_collision_pairs, accumulate_repulsion_for_node};
+use forces::{accumulate_collision_pairs, accumulate_repulsion_for_node, CollisionParams};
 pub(in crate::app) use quadtree::QuadtreeCell;
-use quadtree::{QuadNode, collect_quadtree_cells};
+use quadtree::{collect_quadtree_cells, QuadNode};
 
 const BARNES_HUT_THETA: f32 = 0.72;
 
@@ -66,6 +66,7 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
     let root_pull = 0.036 * intensity;
     let damping = (config.velocity_damping - (intensity * 0.015)).clamp(0.78, 0.97);
     let softening = 620.0;
+    let time_step_scale = (config.delta_seconds * 60.0).clamp(0.25, 3.0);
 
     if let Some(quadtree) = QuadNode::build(positions) {
         for (index, force) in forces.iter_mut().enumerate() {
@@ -182,7 +183,8 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
             force_magnitude = max_force;
         }
 
-        let mut velocity = (cache.nodes[index].velocity + (force * 0.055)) * damping;
+        let mut velocity = (cache.nodes[index].velocity + (force * (0.055 * time_step_scale)))
+            * damping.powf(time_step_scale);
         let mut speed = velocity.length();
         if speed > max_speed {
             velocity = velocity / speed * max_speed;
@@ -195,7 +197,7 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
 
         cache.nodes[index].velocity = velocity;
         average_velocity += velocity;
-        cache.nodes[index].world_pos += velocity;
+        cache.nodes[index].world_pos += velocity * time_step_scale;
         if velocity.length_sq() > 0.000_001 {
             any_motion = true;
         }

@@ -6,7 +6,7 @@ use crate::nix::{SizeMetric, SystemGraph};
 use crate::util::{short_name, stable_pair};
 
 use super::super::render_utils::node_radius;
-use super::super::{RenderNode, ViewModel};
+use super::super::{DependencyRankingMode, RenderNode, ViewModel};
 
 impl ViewModel {
     pub(in crate::app) const INITIAL_RANKING_ROWS: usize = 20;
@@ -20,6 +20,7 @@ impl ViewModel {
         let ranking_limit = graph.node_count();
         let top_nar = graph.top_by_metric(SizeMetric::NarSize, ranking_limit);
         let top_closure = graph.top_by_metric(SizeMetric::ClosureSize, ranking_limit);
+        let top_dependencies = graph.top_by_dependencies(ranking_limit);
         let top_referrers = graph.top_by_referrers(ranking_limit);
 
         Self {
@@ -47,10 +48,13 @@ impl ViewModel {
             details_panel_cache: None,
             top_nar,
             top_closure,
+            top_dependencies,
             top_referrers,
             nar_rows_visible: Self::INITIAL_RANKING_ROWS,
             closure_rows_visible: Self::INITIAL_RANKING_ROWS,
+            dependency_rows_visible: Self::INITIAL_RANKING_ROWS,
             referrer_rows_visible: Self::INITIAL_RANKING_ROWS,
+            dependency_ranking_mode: DependencyRankingMode::TopDependencies,
             related_rows_visible: Self::INITIAL_RELATED_ROWS,
             show_fps_bar: true,
             fps_show_current: true,

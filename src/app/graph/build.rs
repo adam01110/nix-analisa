@@ -9,7 +9,7 @@ use super::super::{PhysicsScratch, RenderGraph, RenderNode, ViewModel, ViewScrat
 
 impl ViewModel {
     fn filtered_node_ids(&self) -> Vec<String> {
-        let threshold = (self.min_size_mb.max(0.0) * 1024.0 * 1024.0) as u64;
+        let threshold = self.metric_threshold_value();
 
         let mut ranked = self
             .graph
