@@ -4,7 +4,7 @@ use eframe::egui::{self, RichText, Ui};
 
 use crate::util::{format_bytes, short_name};
 
-use super::super::highlight::build_highlight_state;
+use super::super::highlight::build_highlight_state_for_selected_id;
 use super::super::{DetailsPanelCache, DetailsPanelCacheKey, RelatedNodeEntry, ViewModel};
 
 impl ViewModel {
@@ -111,6 +111,7 @@ impl ViewModel {
                         );
 
                         if ui.link(label).on_hover_text(related.id.as_str()).clicked() {
+                            self.include_node_in_current_graph(&related.id);
                             self.set_selected(Some(related.id.clone()));
                         }
                     }
@@ -249,8 +250,9 @@ impl ViewModel {
 
         if let Some(cache) = &self.graph_cache
             && let Some(&selected_index) = cache.index_by_id.get(selected_id)
+            && let Some(highlight) =
+                build_highlight_state_for_selected_id(&self.graph, cache, selected_id)
         {
-            let highlight = build_highlight_state(cache, selected_index);
             let direct_outgoing = cache
                 .outgoing
                 .get(selected_index)

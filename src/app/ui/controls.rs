@@ -48,6 +48,16 @@ impl ViewModel {
             .on_hover_text(
                 "Only simulate nodes that are currently visible on screen; off-screen nodes remain fixed.",
             );
+        ui.add_enabled_ui(self.lazy_physics, |ui| {
+            ui.add(
+                egui::Slider::new(&mut self.lazy_physics_update_interval_secs, 0.0..=20.0)
+                    .text("Secs per off-screen update")
+                    .clamping(egui::SliderClamping::Always),
+            )
+            .on_hover_text(
+                "0 disables off-screen updates. Values above 0 set how many seconds pass per off-screen physics catch-up update.",
+            );
+        });
         ui.checkbox(&mut self.show_quadtree_overlay, "Show quadtree overlay")
             .on_hover_text("Draw the active quadtree partitions over the graph canvas.");
 

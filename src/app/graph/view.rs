@@ -145,36 +145,82 @@ impl ViewModel {
 
         let mut physics_moving = false;
         if self.live_physics {
-            let mut frozen_offscreen = Vec::<(usize, Vec2, Vec2)>::new();
             if lazy_physics {
+                let current_time = ui.ctx().input(|input| input.time);
+                if let Some(last_tick) = self.lazy_physics_last_tick_secs {
+                    let delta = (current_time - last_tick).max(0.0) as f32;
+                    self.lazy_physics_offscreen_accumulator_secs += delta;
+                }
+                self.lazy_physics_last_tick_secs = Some(current_time);
+
                 let mut visible_mask = vec![false; cache.nodes.len()];
                 for &index in &cache.view_scratch.visible_indices {
                     if index < visible_mask.len() {
                         visible_mask[index] = true;
                     }
                 }
-                frozen_offscreen.reserve(
-                    cache
-                        .nodes
-                        .len()
-                        .saturating_sub(cache.view_scratch.visible_indices.len()),
-                );
-                for (index, node) in cache.nodes.iter().enumerate() {
-                    if !visible_mask[index] {
-                        frozen_offscreen.push((index, node.world_pos, node.velocity));
+
+                let update_interval = self.lazy_physics_update_interval_secs.max(0.0);
+                let run_offscreen_catchup = update_interval > 0.0
+                    && self.lazy_physics_offscreen_accumulator_secs >= update_interval;
+
+                if run_offscreen_catchup {
+                    self.lazy_physics_offscreen_accumulator_secs -= update_interval;
+                    self.lazy_physics_offscreen_accumulator_secs = self
+                        .lazy_physics_offscreen_accumulator_secs
+                        .min(update_interval);
+
+                    let catchup_seconds = update_interval;
+                    let catchup_steps = (catchup_seconds * 8.0).round().clamp(1.0, 32.0) as usize;
+
+                    let mut frozen_visible = Vec::<(usize, Vec2, Vec2)>::new();
+                    frozen_visible.reserve(cache.view_scratch.visible_indices.len());
+                    for (index, node) in cache.nodes.iter().enumerate() {
+                        if visible_mask[index] {
+                            frozen_visible.push((index, node.world_pos, node.velocity));
+                        }
+                    }
+
+                    let mut catchup_physics = physics;
+                    catchup_physics.intensity =
+                        (physics.intensity * (1.0 + (catchup_seconds * 0.35))).clamp(0.2, 2.5);
+                    for _ in 0..catchup_steps {
+                        physics_moving = step_physics(cache, catchup_physics) || physics_moving;
+                    }
+
+                    for (index, world_pos, velocity) in frozen_visible {
+                        if let Some(node) = cache.nodes.get_mut(index) {
+                            node.world_pos = world_pos;
+                            node.velocity = velocity;
+                        }
+                    }
+                } else {
+                    let mut frozen_offscreen = Vec::<(usize, Vec2, Vec2)>::new();
+                    frozen_offscreen.reserve(
+                        cache
+                            .nodes
+                            .len()
+                            .saturating_sub(cache.view_scratch.visible_indices.len()),
+                    );
+                    for (index, node) in cache.nodes.iter().enumerate() {
+                        if !visible_mask[index] {
+                            frozen_offscreen.push((index, node.world_pos, node.velocity));
+                        }
+                    }
+
+                    physics_moving = step_physics(cache, physics);
+
+                    for (index, world_pos, velocity) in frozen_offscreen {
+                        if let Some(node) = cache.nodes.get_mut(index) {
+                            node.world_pos = world_pos;
+                            node.velocity = velocity;
+                        }
                     }
                 }
-            }
-
-            physics_moving = step_physics(cache, physics);
-
-            if lazy_physics {
-                for (index, world_pos, velocity) in frozen_offscreen {
-                    if let Some(node) = cache.nodes.get_mut(index) {
-                        node.world_pos = world_pos;
-                        node.velocity = velocity;
-                    }
-                }
+            } else {
+                self.lazy_physics_offscreen_accumulator_secs = 0.0;
+                self.lazy_physics_last_tick_secs = None;
+                physics_moving = step_physics(cache, physics);
             }
 
             if physics_moving {
@@ -247,11 +293,20 @@ impl ViewModel {
 
         let hovered_index = hovered.map(|(index, _)| index);
         let highlight = self.selected.as_ref().and_then(|id| {
-            if let Some(selected_index) = cache.index_by_id.get(id).copied() {
-                Some(build_highlight_state(cache, selected_index))
+            let mut highlight = if let Some(selected_index) = cache.index_by_id.get(id).copied() {
+                build_highlight_state(cache, selected_index)
             } else {
+                return build_highlight_state_for_selected_id(&self.graph, cache, id);
+            };
+
+            if let Some(global_highlight) =
                 build_highlight_state_for_selected_id(&self.graph, cache, id)
+            {
+                highlight.root_path_nodes = global_highlight.root_path_nodes;
+                highlight.root_path_edges = global_highlight.root_path_edges;
             }
+
+            Some(highlight)
         });
         let selection_active = highlight.as_ref().is_some_and(|state| {
             !state.related_nodes.is_empty()
