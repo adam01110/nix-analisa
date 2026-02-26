@@ -48,7 +48,8 @@ impl ViewModel {
             top_nar,
             top_closure,
             top_referrers,
-            metric_rows_visible: Self::INITIAL_RANKING_ROWS,
+            nar_rows_visible: Self::INITIAL_RANKING_ROWS,
+            closure_rows_visible: Self::INITIAL_RANKING_ROWS,
             referrer_rows_visible: Self::INITIAL_RANKING_ROWS,
             related_rows_visible: Self::INITIAL_RELATED_ROWS,
             show_fps_bar: true,
@@ -93,6 +94,7 @@ impl ViewModel {
                         *reload_requested = true;
                     }
                     if ui.button("Rebuild graph").clicked() {
+                        self.graph_cache = None;
                         self.graph_dirty = true;
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

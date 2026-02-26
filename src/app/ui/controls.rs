@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align, Layout, RichText, Ui};
+use eframe::egui::{self, Align, Layout, Ui};
 
 use crate::nix::SizeMetric;
 use crate::util::{format_bytes, short_name};
@@ -11,22 +11,23 @@ impl ViewModel {
         ui.add_space(4.0);
 
         let mut changed = false;
-        let current_metric = self.metric;
+        let mut metric_changed = false;
 
         ui.horizontal(|ui| {
-            changed |= ui
+            let nar_changed = ui
                 .selectable_value(&mut self.metric, SizeMetric::NarSize, "Node size")
                 .on_hover_text("Scale nodes and ranking by NAR size.")
                 .changed();
-            changed |= ui
+            changed |= nar_changed;
+            metric_changed |= nar_changed;
+
+            let closure_changed = ui
                 .selectable_value(&mut self.metric, SizeMetric::ClosureSize, "Closure size")
                 .on_hover_text("Scale nodes and ranking by transitive closure size.")
                 .changed();
+            changed |= closure_changed;
+            metric_changed |= closure_changed;
         });
-
-        if self.metric != current_metric {
-            self.metric_rows_visible = Self::INITIAL_RANKING_ROWS;
-        }
 
         changed |= ui
             .add(egui::Slider::new(&mut self.min_size_mb, 0.0..=4096.0).text("Min node size (MiB)"))
@@ -117,28 +118,42 @@ impl ViewModel {
             .on_hover_text("Type to pseudo-highlight matching nodes, then click one to select it.");
 
         if changed {
+            if metric_changed {
+                self.graph_cache = None;
+            }
             self.graph_dirty = true;
         }
 
         ui.separator();
 
-        ui.label(RichText::new(format!("Top by {}", self.metric.label())).strong());
-        self.draw_metric_ranking(ui, self.metric);
+        ui.collapsing(format!("Top by {}", SizeMetric::NarSize.label()), |ui| {
+            self.draw_metric_ranking(ui, SizeMetric::NarSize);
+        });
 
         ui.add_space(8.0);
-        ui.label(RichText::new("Top by reverse dependencies").strong());
-        self.draw_referrer_ranking(ui);
+        ui.collapsing(
+            format!("Top by {}", SizeMetric::ClosureSize.label()),
+            |ui| {
+                self.draw_metric_ranking(ui, SizeMetric::ClosureSize);
+            },
+        );
+
+        ui.add_space(8.0);
+        ui.collapsing("Top by reverse dependencies", |ui| {
+            self.draw_referrer_ranking(ui);
+        });
     }
 
     fn draw_metric_ranking(&mut self, ui: &mut Ui, metric: SizeMetric) {
+        let rows_visible = self.metric_rows_visible(metric);
         let ids_len = self.metric_ids(metric).len();
-        let row_count = ids_len.min(self.metric_rows_visible);
+        let row_count = ids_len.min(rows_visible);
         let mut should_load_more = false;
         let mut selected_id = None;
 
         egui::ScrollArea::vertical()
-            .id_salt("metric_ranking_scroll")
-            .max_height(240.0)
+            .id_salt(self.metric_ranking_scroll_id(metric))
+            .max_height(180.0)
             .auto_shrink([false, false])
             .show_rows(ui, 22.0, row_count, |ui, row_range| {
                 if row_range.end + Self::RANKING_PREFETCH_MARGIN >= row_count {
@@ -178,7 +193,10 @@ impl ViewModel {
         }
 
         if should_load_more && row_count < ids_len {
-            self.metric_rows_visible = (row_count + Self::RANKING_PAGE_ROWS).min(ids_len);
+            self.set_metric_rows_visible(
+                metric,
+                (row_count + Self::RANKING_PAGE_ROWS).min(ids_len),
+            );
         }
     }
 
@@ -238,6 +256,27 @@ impl ViewModel {
         match metric {
             SizeMetric::NarSize => &self.top_nar,
             SizeMetric::ClosureSize => &self.top_closure,
+        }
+    }
+
+    fn metric_rows_visible(&self, metric: SizeMetric) -> usize {
+        match metric {
+            SizeMetric::NarSize => self.nar_rows_visible,
+            SizeMetric::ClosureSize => self.closure_rows_visible,
+        }
+    }
+
+    fn set_metric_rows_visible(&mut self, metric: SizeMetric, rows: usize) {
+        match metric {
+            SizeMetric::NarSize => self.nar_rows_visible = rows,
+            SizeMetric::ClosureSize => self.closure_rows_visible = rows,
+        }
+    }
+
+    fn metric_ranking_scroll_id(&self, metric: SizeMetric) -> &'static str {
+        match metric {
+            SizeMetric::NarSize => "nar_ranking_scroll",
+            SizeMetric::ClosureSize => "closure_ranking_scroll",
         }
     }
 }
