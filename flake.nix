@@ -48,7 +48,6 @@
                 (old.postInstall or "")
                 + ''
                   wrapProgram "$out/bin/nix-analisa" \
-                    --prefix LD_LIBRARY_PATH : "${runtimeLibPath}" \
                     --set-default WINIT_UNIX_BACKEND wayland
                 '';
             };
