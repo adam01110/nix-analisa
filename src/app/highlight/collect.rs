@@ -62,37 +62,3 @@ pub(super) fn collect_related_paths_by_id(
         }
     }
 }
-
-pub(super) fn collect_related_paths(
-    adjacency: &[Vec<usize>],
-    selected_index: usize,
-    forward: bool,
-    related_nodes: &mut HashSet<usize>,
-    related_edges: &mut HashSet<(usize, usize)>,
-) {
-    const RELATED_DEPTH: usize = 1;
-    const RELATED_NODE_LIMIT: usize = 280;
-
-    let mut queue = VecDeque::from([(selected_index, 0usize)]);
-    let mut visited = HashSet::from([selected_index]);
-
-    while let Some((node, depth)) = queue.pop_front() {
-        if depth >= RELATED_DEPTH {
-            continue;
-        }
-
-        for &next in adjacency[node].iter().take(160) {
-            let edge = if forward { (node, next) } else { (next, node) };
-            related_edges.insert(edge);
-
-            let inserted = related_nodes.insert(next);
-            if inserted && related_nodes.len() >= RELATED_NODE_LIMIT {
-                return;
-            }
-
-            if visited.insert(next) {
-                queue.push_back((next, depth + 1));
-            }
-        }
-    }
-}

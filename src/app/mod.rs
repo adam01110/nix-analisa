@@ -112,7 +112,9 @@ struct ViewScratch {
     screen_positions: Vec<Pos2>,
     screen_radii: Vec<f32>,
     visible_indices: Vec<usize>,
+    visible_mask: Vec<bool>,
     draw_order: Vec<usize>,
+    draw_order_dirty: bool,
     quadtree_positions: Vec<Vec2>,
     quadtree_cells: Vec<physics::QuadtreeCell>,
 }

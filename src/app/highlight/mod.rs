@@ -3,46 +3,9 @@ use std::collections::HashSet;
 use crate::nix::SystemGraph;
 
 mod collect;
-mod paths;
 
-use self::collect::{collect_related_paths, collect_related_paths_by_id};
-use self::paths::shortest_root_path;
+use self::collect::collect_related_paths_by_id;
 use super::{HighlightState, RenderGraph};
-
-pub(super) fn build_highlight_state(cache: &RenderGraph, selected_index: usize) -> HighlightState {
-    let mut related_nodes = HashSet::new();
-    let mut related_edges = HashSet::new();
-
-    related_nodes.insert(selected_index);
-
-    collect_related_paths(
-        &cache.outgoing,
-        selected_index,
-        true,
-        &mut related_nodes,
-        &mut related_edges,
-    );
-    collect_related_paths(
-        &cache.incoming,
-        selected_index,
-        false,
-        &mut related_nodes,
-        &mut related_edges,
-    );
-
-    let (root_path_nodes, root_path_edges) = if let Some(root_index) = cache.root_index {
-        shortest_root_path(cache, root_index, selected_index)
-    } else {
-        (HashSet::new(), HashSet::new())
-    };
-
-    HighlightState {
-        related_nodes,
-        related_edges,
-        root_path_nodes,
-        root_path_edges,
-    }
-}
 
 pub(super) fn build_highlight_state_for_selected_id(
     graph: &SystemGraph,
@@ -55,6 +18,10 @@ pub(super) fn build_highlight_state_for_selected_id(
 
     let mut related_nodes = HashSet::new();
     let mut related_edges = HashSet::new();
+
+    if let Some(&selected_index) = cache.index_by_id.get(selected_id) {
+        related_nodes.insert(selected_index);
+    }
 
     collect_related_paths_by_id(
         graph,

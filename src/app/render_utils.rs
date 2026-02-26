@@ -14,12 +14,8 @@ pub(super) fn blend_color(base: Color32, overlay: Color32, amount: f32) -> Color
 
 pub(super) fn dim_color(color: Color32, factor: f32) -> Color32 {
     let factor = factor.clamp(0.0, 1.0);
-    Color32::from_rgba_unmultiplied(
-        (color.r() as f32 * factor) as u8,
-        (color.g() as f32 * factor) as u8,
-        (color.b() as f32 * factor) as u8,
-        (color.a() as f32 * (0.45 + (factor * 0.55))) as u8,
-    )
+    let alpha = (color.a() as f32 * factor) as u8;
+    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
 }
 
 pub(super) fn draw_background(painter: &Painter, rect: Rect, pan: Vec2, zoom: f32) {

@@ -225,6 +225,10 @@ impl ViewModel {
             }
         }
 
+        cache.view_scratch.draw_order_dirty = true;
+        self.render_graph_revision = self.render_graph_revision.wrapping_add(1);
+        self.search_match_cache = None;
+
         self.visible_node_count = cache.nodes.len();
         self.visible_edge_count = cache.edges.len();
     }

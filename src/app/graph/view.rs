@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2};
@@ -7,7 +7,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 
 use crate::util::{format_bytes, short_name};
 
-use super::super::highlight::{build_highlight_state, build_highlight_state_for_selected_id};
+use super::super::highlight::build_highlight_state_for_selected_id;
 use super::super::physics::{quadtree_cells, step_physics};
 use super::super::render_utils::{
     blend_color, dim_color, draw_background, edge_visible, metric_color, world_to_screen,
@@ -53,6 +53,26 @@ impl ViewModel {
                 .screen_radii
                 .push((render_node.base_radius * zoom.powf(0.40)).clamp(2.5, 46.0));
         }
+    }
+
+    fn ensure_draw_order(cache: &mut super::super::RenderGraph) {
+        if !cache.view_scratch.draw_order_dirty
+            && cache.view_scratch.draw_order.len() == cache.nodes.len()
+        {
+            return;
+        }
+
+        cache.view_scratch.draw_order.clear();
+        cache
+            .view_scratch
+            .draw_order
+            .extend(0..cache.nodes.len());
+        cache.view_scratch.draw_order.sort_by(|a, b| {
+            cache.nodes[*a]
+                .metric_value
+                .cmp(&cache.nodes[*b].metric_value)
+        });
+        cache.view_scratch.draw_order_dirty = false;
     }
 
     fn cached_pseudo_matches(&mut self) -> Option<Arc<HashSet<usize>>> {
@@ -134,6 +154,15 @@ impl ViewModel {
             return;
         };
 
+        let mut physics_moving = false;
+        if self.live_physics {
+            physics_moving = step_physics(cache, physics);
+        }
+
+        if physics_moving || interaction_active {
+            ui.ctx().request_repaint();
+        }
+
         Self::update_screen_space(rect, pan, zoom, cache);
         Self::visible_indices_into(
             rect,
@@ -141,19 +170,17 @@ impl ViewModel {
             &cache.view_scratch.screen_radii,
             &mut cache.view_scratch.visible_indices,
         );
-
-        let mut physics_moving = false;
-        if self.live_physics {
-            physics_moving = step_physics(cache, physics);
-
-            if physics_moving {
-                Self::update_screen_space(rect, pan, zoom, cache);
+        cache.view_scratch.visible_mask.clear();
+        cache
+            .view_scratch
+            .visible_mask
+            .resize(cache.nodes.len(), false);
+        for &index in &cache.view_scratch.visible_indices {
+            if let Some(entry) = cache.view_scratch.visible_mask.get_mut(index) {
+                *entry = true;
             }
         }
-
-        if physics_moving || interaction_active {
-            ui.ctx().request_repaint();
-        }
+        self.visible_node_count = cache.view_scratch.visible_indices.len();
 
         if show_quadtree_overlay {
             quadtree_cells(
@@ -184,14 +211,6 @@ impl ViewModel {
             }
         }
 
-        Self::visible_indices_into(
-            rect,
-            &cache.view_scratch.screen_positions,
-            &cache.view_scratch.screen_radii,
-            &mut cache.view_scratch.visible_indices,
-        );
-        self.visible_node_count = cache.view_scratch.visible_indices.len();
-
         let hovered = Self::hovered_index(
             ui,
             &cache.view_scratch.visible_indices,
@@ -215,22 +234,10 @@ impl ViewModel {
             };
 
         let hovered_index = hovered.map(|(index, _)| index);
-        let highlight = self.selected.as_ref().and_then(|id| {
-            let mut highlight = if let Some(selected_index) = cache.index_by_id.get(id).copied() {
-                build_highlight_state(cache, selected_index)
-            } else {
-                return build_highlight_state_for_selected_id(&self.graph, cache, id);
-            };
-
-            if let Some(global_highlight) =
-                build_highlight_state_for_selected_id(&self.graph, cache, id)
-            {
-                highlight.root_path_nodes = global_highlight.root_path_nodes;
-                highlight.root_path_edges = global_highlight.root_path_edges;
-            }
-
-            Some(highlight)
-        });
+        let highlight = self
+            .selected
+            .as_ref()
+            .and_then(|id| build_highlight_state_for_selected_id(&self.graph, cache, id));
         let selection_active = highlight.as_ref().is_some_and(|state| {
             !state.related_nodes.is_empty()
                 || !state.related_edges.is_empty()
@@ -241,6 +248,38 @@ impl ViewModel {
             .as_ref()
             .is_some_and(|matches| !matches.is_empty());
 
+        let zoom_sqrt = self.zoom.sqrt();
+        let edge_detail = ((self.zoom - 0.35) / 0.95).clamp(0.0, 1.0);
+        let short_edge_min_length = 1.5 + (1.0 - edge_detail) * 2.0;
+        let short_edge_min_length_sq = short_edge_min_length * short_edge_min_length;
+        let low_zoom_edge_stride = if self.zoom < 0.28 {
+            2usize
+        } else {
+            1usize
+        };
+        let density_cell_size = (28.0 + (1.0 - edge_detail) * 20.0).clamp(28.0, 52.0);
+        let mut edge_density_by_cell: HashMap<u64, u16> = HashMap::new();
+        for &(src, dst) in &cache.edges {
+            if src >= cache.nodes.len() || dst >= cache.nodes.len() {
+                continue;
+            }
+
+            let start = cache.view_scratch.screen_positions[src];
+            let end = cache.view_scratch.screen_positions[dst];
+            let src_visible = cache.view_scratch.visible_mask.get(src).copied().unwrap_or(false);
+            let dst_visible = cache.view_scratch.visible_mask.get(dst).copied().unwrap_or(false);
+            if !src_visible && !dst_visible && !edge_visible(rect, start, end, 2.5) {
+                continue;
+            }
+
+            let mid = start + (end - start) * 0.5;
+            let cell_x = ((mid.x - rect.left()) / density_cell_size).floor() as i32;
+            let cell_y = ((mid.y - rect.top()) / density_cell_size).floor() as i32;
+            let key = ((cell_x as u32 as u64) << 32) | (cell_y as u32 as u64);
+            let entry = edge_density_by_cell.entry(key).or_insert(0);
+            *entry = entry.saturating_add(1);
+        }
+
         let mut visible_edge_count = 0usize;
         for &(src, dst) in &cache.edges {
             if src >= cache.nodes.len() || dst >= cache.nodes.len() {
@@ -249,51 +288,97 @@ impl ViewModel {
 
             let start = cache.view_scratch.screen_positions[src];
             let end = cache.view_scratch.screen_positions[dst];
-            if !edge_visible(rect, start, end, 2.5) {
+            let src_visible = cache.view_scratch.visible_mask.get(src).copied().unwrap_or(false);
+            let dst_visible = cache.view_scratch.visible_mask.get(dst).copied().unwrap_or(false);
+            if !src_visible && !dst_visible && !edge_visible(rect, start, end, 2.5) {
                 continue;
             }
-            visible_edge_count += 1;
 
-            let (line_width, line_color) = if let Some(state) = &highlight {
-                if state.root_path_edges.contains(&(src, dst)) {
-                    (
-                        (2.4 * self.zoom.sqrt()).clamp(1.2, 4.4),
-                        Color32::from_rgb(246, 206, 104),
-                    )
-                } else if state.related_edges.contains(&(src, dst)) {
-                    (
-                        (1.7 * self.zoom.sqrt()).clamp(0.9, 3.3),
-                        Color32::from_rgb(241, 146, 94),
-                    )
-                } else {
-                    (
-                        (0.45 * self.zoom.sqrt()).clamp(0.2, 1.2),
-                        Color32::from_rgba_unmultiplied(80, 90, 104, 48),
-                    )
-                }
-            } else {
+            let (is_root_path_edge, is_related_edge) = if let Some(state) = &highlight {
                 (
-                    (0.7 * self.zoom.sqrt()).clamp(0.45, 2.2),
-                    Color32::from_gray(72),
+                    state.root_path_edges.contains(&(src, dst)),
+                    state.related_edges.contains(&(src, dst)),
+                )
+            } else {
+                (false, false)
+            };
+
+            let highlighted_edge = is_root_path_edge || is_related_edge;
+            if !highlighted_edge {
+                let mid = start + (end - start) * 0.5;
+                let cell_x = ((mid.x - rect.left()) / density_cell_size).floor() as i32;
+                let cell_y = ((mid.y - rect.top()) / density_cell_size).floor() as i32;
+                let key = ((cell_x as u32 as u64) << 32) | (cell_y as u32 as u64);
+                let density = edge_density_by_cell.get(&key).copied().unwrap_or(0) as usize;
+
+                let mut density_stride = if density > 140 {
+                    3usize
+                } else if density > 90 {
+                    2usize
+                } else {
+                    1usize
+                };
+                if edge_detail > 0.82 {
+                    density_stride = 1;
+                } else if edge_detail > 0.65 {
+                    density_stride = density_stride.min(2);
+                }
+
+                let stride = density_stride.max(low_zoom_edge_stride);
+                if stride > 1 {
+                    let edge_hash = src.wrapping_mul(31) ^ dst.wrapping_mul(131);
+                    if edge_hash % stride != 0 {
+                        continue;
+                    }
+                }
+
+                let apply_length_filter = density > 70 || self.zoom < 0.24;
+                if apply_length_filter && (end - start).length_sq() < short_edge_min_length_sq {
+                    continue;
+                }
+            }
+
+            let (line_width, line_color) = if is_root_path_edge {
+                (
+                    (3.3 * zoom_sqrt).clamp(1.7, 5.8),
+                    Color32::from_rgb(246, 206, 104),
+                )
+            } else if is_related_edge {
+                (
+                    (2.5 * zoom_sqrt).clamp(1.2, 4.4),
+                    Color32::from_rgb(241, 146, 94),
+                )
+            } else if highlight.is_some() {
+                let edge_alpha = (42.0 + edge_detail * 86.0) as u8;
+                (
+                    (0.82 * zoom_sqrt).clamp(0.45, 2.0),
+                    Color32::from_rgba_unmultiplied(80, 90, 104, edge_alpha),
+                )
+            } else {
+                let edge_alpha = (48.0 + edge_detail * 124.0) as u8;
+                (
+                    (1.18 * zoom_sqrt).clamp(0.60, 3.4),
+                    Color32::from_rgba_unmultiplied(72, 72, 72, edge_alpha),
                 )
             };
 
             painter.line_segment([start, end], Stroke::new(line_width, line_color));
+            visible_edge_count += 1;
         }
         self.visible_edge_count = visible_edge_count;
 
-        cache.view_scratch.draw_order.clear();
-        cache
-            .view_scratch
-            .draw_order
-            .extend(cache.view_scratch.visible_indices.iter().copied());
-        cache.view_scratch.draw_order.sort_by(|a, b| {
-            cache.nodes[*a]
-                .metric_value
-                .cmp(&cache.nodes[*b].metric_value)
-        });
-
+        Self::ensure_draw_order(cache);
         for index in cache.view_scratch.draw_order.iter().copied() {
+            if !cache
+                .view_scratch
+                .visible_mask
+                .get(index)
+                .copied()
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
             let render_node = &cache.nodes[index];
             let position = cache.view_scratch.screen_positions[index];
             let radius = cache.view_scratch.screen_radii[index];

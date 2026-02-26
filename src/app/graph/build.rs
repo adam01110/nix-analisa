@@ -207,6 +207,7 @@ impl ViewModel {
             cache.root_index = root_index;
             cache.min_metric = min_metric;
             cache.max_metric = max_metric;
+            cache.view_scratch.draw_order_dirty = true;
             self.graph_cache = Some(cache);
         } else {
             let nodes = ids
@@ -252,7 +253,9 @@ impl ViewModel {
                     screen_positions: Vec::new(),
                     screen_radii: Vec::new(),
                     visible_indices: Vec::new(),
+                    visible_mask: Vec::new(),
                     draw_order: Vec::new(),
+                    draw_order_dirty: true,
                     quadtree_positions: Vec::new(),
                     quadtree_cells: Vec::new(),
                 },
