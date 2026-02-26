@@ -63,10 +63,7 @@ impl ViewModel {
         }
 
         cache.view_scratch.draw_order.clear();
-        cache
-            .view_scratch
-            .draw_order
-            .extend(0..cache.nodes.len());
+        cache.view_scratch.draw_order.extend(0..cache.nodes.len());
         cache.view_scratch.draw_order.sort_by(|a, b| {
             cache.nodes[*a]
                 .metric_value
@@ -273,8 +270,18 @@ impl ViewModel {
 
             let start = cache.view_scratch.screen_positions[src];
             let end = cache.view_scratch.screen_positions[dst];
-            let src_visible = cache.view_scratch.visible_mask.get(src).copied().unwrap_or(false);
-            let dst_visible = cache.view_scratch.visible_mask.get(dst).copied().unwrap_or(false);
+            let src_visible = cache
+                .view_scratch
+                .visible_mask
+                .get(src)
+                .copied()
+                .unwrap_or(false);
+            let dst_visible = cache
+                .view_scratch
+                .visible_mask
+                .get(dst)
+                .copied()
+                .unwrap_or(false);
             if !src_visible && !dst_visible && !edge_visible(rect, start, end, 2.5) {
                 continue;
             }
@@ -295,8 +302,18 @@ impl ViewModel {
 
             let start = cache.view_scratch.screen_positions[src];
             let end = cache.view_scratch.screen_positions[dst];
-            let src_visible = cache.view_scratch.visible_mask.get(src).copied().unwrap_or(false);
-            let dst_visible = cache.view_scratch.visible_mask.get(dst).copied().unwrap_or(false);
+            let src_visible = cache
+                .view_scratch
+                .visible_mask
+                .get(src)
+                .copied()
+                .unwrap_or(false);
+            let dst_visible = cache
+                .view_scratch
+                .visible_mask
+                .get(dst)
+                .copied()
+                .unwrap_or(false);
             if !src_visible && !dst_visible && !edge_visible(rect, start, end, 2.5) {
                 continue;
             }
@@ -459,7 +476,10 @@ impl ViewModel {
             painter.circle_stroke(
                 position,
                 radius,
-                Stroke::new(stroke_width, Color32::from_rgba_unmultiplied(15, 15, 15, 190)),
+                Stroke::new(
+                    stroke_width,
+                    Color32::from_rgba_unmultiplied(15, 15, 15, 190),
+                ),
             );
 
             let highlighted = is_selected || is_root_path || is_related;

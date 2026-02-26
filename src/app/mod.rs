@@ -247,8 +247,9 @@ impl eframe::App for NixAnalyzeApp {
                             self.reload_rx = Some(rx);
                         }
                         Err(TryRecvError::Disconnected) => {
-                            transition =
-                                Some(AppState::Error("Background load worker disconnected".to_owned()));
+                            transition = Some(AppState::Error(
+                                "Background load worker disconnected".to_owned(),
+                            ));
                         }
                     }
                 }

@@ -1,6 +1,8 @@
-use eframe::egui::{vec2, Vec2};
+use eframe::egui::{Vec2, vec2};
 
 use super::quadtree::QuadNode;
+
+const DIRECTION_EPSILON_SQ: f32 = 0.0001 * 0.0001;
 
 #[derive(Clone, Copy)]
 pub(super) struct CollisionParams {
@@ -16,13 +18,41 @@ fn repulsion_between(
 ) -> Vec2 {
     let delta = point_a - point_b;
     let distance_sq = delta.length_sq();
-    let distance = distance_sq.sqrt();
-    let direction = if distance > 0.0001 {
-        delta / distance
+    let direction = if distance_sq > DIRECTION_EPSILON_SQ {
+        delta * distance_sq.sqrt().recip()
     } else {
         vec2(1.0, 0.0)
     };
     direction * (repulsion_strength / (distance_sq + softening))
+}
+
+fn collide_pair(
+    from: usize,
+    to: usize,
+    positions: &[Vec2],
+    radii: &[f32],
+    collision_strength: f32,
+    forces: &mut [Vec2],
+) {
+    let delta = positions[from] - positions[to];
+    let distance_sq = delta.length_sq();
+
+    let min_distance = (radii[from] + radii[to]) * 4.2;
+    let min_distance_sq = min_distance * min_distance;
+    if distance_sq >= min_distance_sq {
+        return;
+    }
+
+    let direction = if distance_sq > DIRECTION_EPSILON_SQ {
+        delta * distance_sq.sqrt().recip()
+    } else {
+        let angle = ((from as f32) * 0.618_034 + (to as f32) * 0.414_214) * std::f32::consts::TAU;
+        vec2(angle.cos(), angle.sin())
+    };
+
+    let overlap_push = (min_distance - distance_sq.sqrt()) * collision_strength;
+    forces[from] += direction * overlap_push;
+    forces[to] -= direction * overlap_push;
 }
 
 pub(super) fn accumulate_repulsion_for_node(
@@ -99,45 +129,27 @@ pub(super) fn accumulate_collision_pairs(
                 let from = node_a.indices[i];
                 for j in (i + 1)..node_a.indices.len() {
                     let to = node_a.indices[j];
-                    let delta = positions[from] - positions[to];
-                    let distance_sq = delta.length_sq();
-                    let distance = distance_sq.sqrt();
-                    let direction = if distance > 0.0001 {
-                        delta / distance
-                    } else {
-                        let angle = ((from as f32) * 0.618_034 + (to as f32) * 0.414_214)
-                            * std::f32::consts::TAU;
-                        vec2(angle.cos(), angle.sin())
-                    };
-
-                    let min_distance = (radii[from] + radii[to]) * 4.2;
-                    if distance < min_distance {
-                        let overlap_push = (min_distance - distance) * params.collision_strength;
-                        forces[from] += direction * overlap_push;
-                        forces[to] -= direction * overlap_push;
-                    }
+                    collide_pair(
+                        from,
+                        to,
+                        positions,
+                        radii,
+                        params.collision_strength,
+                        forces,
+                    );
                 }
             }
         } else {
             for &from in &node_a.indices {
                 for &to in &node_b.indices {
-                    let delta = positions[from] - positions[to];
-                    let distance_sq = delta.length_sq();
-                    let distance = distance_sq.sqrt();
-                    let direction = if distance > 0.0001 {
-                        delta / distance
-                    } else {
-                        let angle = ((from as f32) * 0.618_034 + (to as f32) * 0.414_214)
-                            * std::f32::consts::TAU;
-                        vec2(angle.cos(), angle.sin())
-                    };
-
-                    let min_distance = (radii[from] + radii[to]) * 4.2;
-                    if distance < min_distance {
-                        let overlap_push = (min_distance - distance) * params.collision_strength;
-                        forces[from] += direction * overlap_push;
-                        forces[to] -= direction * overlap_push;
-                    }
+                    collide_pair(
+                        from,
+                        to,
+                        positions,
+                        radii,
+                        params.collision_strength,
+                        forces,
+                    );
                 }
             }
         }

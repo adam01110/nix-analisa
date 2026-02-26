@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use eframe::egui::{self, vec2, Align, Context, Layout, Vec2};
+use eframe::egui::{self, Align, Context, Layout, Vec2, vec2};
 
 use crate::nix::{SizeMetric, SystemGraph};
 use crate::util::{short_name, stable_pair};

@@ -1,12 +1,12 @@
 mod forces;
 mod quadtree;
 
-use eframe::egui::{vec2, Vec2};
+use eframe::egui::{Vec2, vec2};
 
 use super::{PhysicsConfig, RenderGraph, RenderNode};
-use forces::{accumulate_collision_pairs, accumulate_repulsion_for_node, CollisionParams};
+use forces::{CollisionParams, accumulate_collision_pairs, accumulate_repulsion_for_node};
 pub(in crate::app) use quadtree::QuadtreeCell;
-use quadtree::{collect_quadtree_cells, QuadNode};
+use quadtree::{QuadNode, collect_quadtree_cells};
 
 const BARNES_HUT_THETA: f32 = 0.72;
 
@@ -67,6 +67,8 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
     let damping = (config.velocity_damping - (intensity * 0.015)).clamp(0.78, 0.97);
     let softening = 620.0;
     let time_step_scale = (config.delta_seconds * 60.0).clamp(0.25, 3.0);
+    let damping_factor = damping.powf(time_step_scale);
+    let root_index = cache.root_index.filter(|&index| index < node_count);
 
     if let Some(quadtree) = QuadNode::build(positions) {
         for (index, force) in forces.iter_mut().enumerate() {
@@ -104,10 +106,11 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
         }
 
         let delta = cache.nodes[from].world_pos - cache.nodes[to].world_pos;
-        let distance = delta.length();
-        if distance <= 0.0001 {
+        let distance_sq = delta.length_sq();
+        if distance_sq <= 0.0001 * 0.0001 {
             continue;
         }
+        let distance = distance_sq.sqrt();
         let direction = delta / distance;
 
         let preferred = 96.0 + (cache.nodes[from].base_radius + cache.nodes[to].base_radius) * 4.0;
@@ -122,16 +125,18 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
 
     for (index, force) in forces.iter_mut().enumerate().take(node_count) {
         *force -= cache.nodes[index].world_pos * center_pull;
+        if Some(index) == root_index {
+            *force -= cache.nodes[index].world_pos * root_pull;
+        }
     }
 
     let target_radius = (node_count as f32).sqrt() * 42.0 * config.target_spread.clamp(0.6, 2.0);
     let spread_force = config.spread_force.clamp(0.0, 0.08) * intensity;
     if spread_force > 0.0 {
-        let root_index = cache.root_index.filter(|index| *index < node_count);
         let mut radius_sum = 0.0;
         let mut radius_count = 0usize;
         for (index, node) in cache.nodes.iter().enumerate() {
-            if root_index.is_some_and(|root| root == index) {
+            if Some(index) == root_index {
                 continue;
             }
             radius_sum += node.world_pos.length();
@@ -143,7 +148,7 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
             let radius_error = average_radius - target_radius;
             let hard_limit = target_radius * 1.55;
             for (index, force) in forces.iter_mut().enumerate().take(node_count) {
-                if root_index.is_some_and(|root| root == index) {
+                if Some(index) == root_index {
                     continue;
                 }
 
@@ -164,41 +169,38 @@ pub(super) fn step_physics(cache: &mut RenderGraph, config: PhysicsConfig) -> bo
         }
     }
 
-    if let Some(root_index) = cache
-        .root_index
-        .filter(|&root_index| root_index < node_count)
-    {
-        forces[root_index] -= cache.nodes[root_index].world_pos * root_pull;
-    }
-
     let max_force = 165.0 + (intensity * 90.0);
+    let max_force_sq = max_force * max_force;
     let max_speed = 11.0 + (intensity * 15.0);
+    let max_speed_sq = max_speed * max_speed;
+    let min_sleep_speed_sq = 0.02 * 0.02;
+    let min_sleep_force_sq = 0.08 * 0.08;
     let mut any_motion = false;
     let mut average_velocity = Vec2::ZERO;
     for (index, force_value) in forces.iter().enumerate().take(node_count) {
         let mut force = *force_value;
-        let mut force_magnitude = force.length();
-        if force_magnitude > max_force {
-            force = force / force_magnitude * max_force;
-            force_magnitude = max_force;
+        let force_sq = force.length_sq();
+        if force_sq > max_force_sq {
+            force *= max_force / force_sq.sqrt();
         }
 
-        let mut velocity = (cache.nodes[index].velocity + (force * (0.055 * time_step_scale)))
-            * damping.powf(time_step_scale);
-        let mut speed = velocity.length();
-        if speed > max_speed {
-            velocity = velocity / speed * max_speed;
-            speed = max_speed;
+        let mut velocity =
+            (cache.nodes[index].velocity + (force * (0.055 * time_step_scale))) * damping_factor;
+        let mut speed_sq = velocity.length_sq();
+        if speed_sq > max_speed_sq {
+            velocity *= max_speed / speed_sq.sqrt();
+            speed_sq = max_speed_sq;
         }
 
-        if speed < 0.02 && force_magnitude < 0.08 {
+        if speed_sq < min_sleep_speed_sq && force_sq < min_sleep_force_sq {
             velocity = Vec2::ZERO;
+            speed_sq = 0.0;
         }
 
         cache.nodes[index].velocity = velocity;
         average_velocity += velocity;
         cache.nodes[index].world_pos += velocity * time_step_scale;
-        if velocity.length_sq() > 0.000_001 {
+        if speed_sq > 0.000_001 {
             any_motion = true;
         }
     }
