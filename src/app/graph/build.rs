@@ -8,10 +8,7 @@ use super::super::render_utils::node_radius;
 use super::super::{PhysicsScratch, RenderGraph, RenderNode, ViewModel, ViewScratch};
 
 impl ViewModel {
-    pub(in crate::app) fn rebuild_render_graph(&mut self) {
-        self.render_graph_revision = self.render_graph_revision.wrapping_add(1);
-        self.search_match_cache = None;
-
+    fn filtered_node_ids(&self) -> Vec<String> {
         let threshold = (self.min_size_mb.max(0.0) * 1024.0 * 1024.0) as u64;
 
         let mut ranked = self
@@ -59,19 +56,45 @@ impl ViewModel {
             }
         }
 
-        if ids.is_empty() {
-            self.graph_cache = None;
-            self.visible_node_count = 0;
-            self.visible_edge_count = 0;
-            self.graph_dirty = false;
-            return;
+        ids
+    }
+
+    fn make_render_node(
+        id: String,
+        index: usize,
+        metric_value: u64,
+        base_radius: f32,
+        is_root: bool,
+    ) -> RenderNode {
+        let (jx, jy) = stable_pair(&id);
+        let mut direction = vec2(jx, jy);
+        if direction.length_sq() <= 0.0001 {
+            let angle = ((index as f32) * 0.618_034 + 0.11) * std::f32::consts::TAU;
+            direction = vec2(angle.cos(), angle.sin());
+        } else {
+            direction = direction.normalized();
         }
 
-        let mut index_by_id = HashMap::with_capacity(ids.len());
-        for (index, id) in ids.iter().enumerate() {
-            index_by_id.insert(id.clone(), index);
-        }
+        let initial_speed = if is_root {
+            0.0
+        } else {
+            1.15 + (base_radius * 0.022)
+        };
 
+        RenderNode {
+            id,
+            world_pos: Vec2::ZERO,
+            velocity: direction * initial_speed,
+            metric_value,
+            base_radius,
+        }
+    }
+
+    fn collect_edges(
+        &self,
+        ids: &[String],
+        index_by_id: &HashMap<String, usize>,
+    ) -> Vec<(usize, usize)> {
         let mut edges = Vec::new();
         for (source_index, source_id) in ids.iter().enumerate() {
             let Some(node) = self.graph.nodes.get(source_id) else {
@@ -88,6 +111,22 @@ impl ViewModel {
         }
         edges.sort_unstable();
         edges.dedup();
+        edges
+    }
+
+    pub(in crate::app) fn rebuild_render_graph(&mut self) {
+        self.render_graph_revision = self.render_graph_revision.wrapping_add(1);
+        self.search_match_cache = None;
+
+        let ids = self.filtered_node_ids();
+
+        if ids.is_empty() {
+            self.graph_cache = None;
+            self.visible_node_count = 0;
+            self.visible_edge_count = 0;
+            self.graph_dirty = false;
+            return;
+        }
 
         let mut min_metric = u64::MAX;
         let mut max_metric = 0u64;
@@ -115,70 +154,111 @@ impl ViewModel {
             .map(|metric| node_radius(*metric, min_metric, max_metric))
             .collect::<Vec<_>>();
 
+        let mut index_by_id = HashMap::with_capacity(ids.len());
+        for (index, id) in ids.iter().enumerate() {
+            index_by_id.insert(id.clone(), index);
+        }
         let root_index = index_by_id.get(&self.graph.root_id).copied();
+        let edges = self.collect_edges(&ids, &index_by_id);
 
-        let nodes = ids
-            .into_iter()
-            .zip(metrics.into_iter().zip(node_radii))
-            .enumerate()
-            .map(|(index, (id, (metric_value, base_radius)))| {
-                let (jx, jy) = stable_pair(&id);
-                let mut direction = vec2(jx, jy);
-                if direction.length_sq() <= 0.0001 {
-                    let angle = ((index as f32) * 0.618_034 + 0.11) * std::f32::consts::TAU;
-                    direction = vec2(angle.cos(), angle.sin());
+        if let Some(mut cache) = self.graph_cache.take() {
+            let mut prior_nodes = cache
+                .nodes
+                .into_iter()
+                .map(|node| (node.id.clone(), node))
+                .collect::<HashMap<_, _>>();
+
+            let mut next_nodes = Vec::with_capacity(ids.len());
+            for (index, ((id, metric_value), base_radius)) in ids
+                .iter()
+                .zip(metrics.iter())
+                .zip(node_radii.iter())
+                .enumerate()
+            {
+                if let Some(mut node) = prior_nodes.remove(id) {
+                    node.metric_value = *metric_value;
+                    node.base_radius = *base_radius;
+                    next_nodes.push(node);
                 } else {
-                    direction = direction.normalized();
+                    next_nodes.push(Self::make_render_node(
+                        id.clone(),
+                        index,
+                        *metric_value,
+                        *base_radius,
+                        root_index.is_some_and(|root| root == index),
+                    ));
                 }
-
-                let initial_speed = if root_index.is_some_and(|root| root == index) {
-                    0.0
-                } else {
-                    1.15 + (base_radius * 0.022)
-                };
-
-                RenderNode {
-                    id,
-                    world_pos: Vec2::ZERO,
-                    velocity: direction * initial_speed,
-                    metric_value,
-                    base_radius,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let mut outgoing = vec![Vec::new(); nodes.len()];
-        let mut incoming = vec![Vec::new(); nodes.len()];
-        for &(source, target) in &edges {
-            if source < nodes.len() && target < nodes.len() {
-                outgoing[source].push(target);
-                incoming[target].push(source);
             }
+
+            let mut outgoing = vec![Vec::new(); next_nodes.len()];
+            let mut incoming = vec![Vec::new(); next_nodes.len()];
+            for &(source, target) in &edges {
+                if source < next_nodes.len() && target < next_nodes.len() {
+                    outgoing[source].push(target);
+                    incoming[target].push(source);
+                }
+            }
+
+            cache.nodes = next_nodes;
+            cache.edges = edges;
+            cache.index_by_id = index_by_id;
+            cache.outgoing = outgoing;
+            cache.incoming = incoming;
+            cache.root_index = root_index;
+            cache.min_metric = min_metric;
+            cache.max_metric = max_metric;
+            self.graph_cache = Some(cache);
+        } else {
+            let nodes = ids
+                .iter()
+                .zip(metrics.iter())
+                .zip(node_radii.iter())
+                .enumerate()
+                .map(|(index, ((id, metric_value), base_radius))| {
+                    Self::make_render_node(
+                        id.clone(),
+                        index,
+                        *metric_value,
+                        *base_radius,
+                        root_index.is_some_and(|root| root == index),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let mut outgoing = vec![Vec::new(); nodes.len()];
+            let mut incoming = vec![Vec::new(); nodes.len()];
+            for &(source, target) in &edges {
+                if source < nodes.len() && target < nodes.len() {
+                    outgoing[source].push(target);
+                    incoming[target].push(source);
+                }
+            }
+
+            self.graph_cache = Some(RenderGraph {
+                nodes,
+                edges,
+                index_by_id,
+                outgoing,
+                incoming,
+                root_index,
+                min_metric,
+                max_metric,
+                physics_scratch: PhysicsScratch {
+                    forces: Vec::new(),
+                    positions: Vec::new(),
+                    radii: Vec::new(),
+                },
+                view_scratch: ViewScratch {
+                    screen_positions: Vec::new(),
+                    screen_radii: Vec::new(),
+                    visible_indices: Vec::new(),
+                    draw_order: Vec::new(),
+                    quadtree_positions: Vec::new(),
+                    quadtree_cells: Vec::new(),
+                },
+            });
         }
 
-        self.graph_cache = Some(RenderGraph {
-            nodes,
-            edges,
-            index_by_id,
-            outgoing,
-            incoming,
-            root_index,
-            min_metric,
-            max_metric,
-            physics_scratch: PhysicsScratch {
-                forces: Vec::new(),
-                positions: Vec::new(),
-                radii: Vec::new(),
-            },
-            view_scratch: ViewScratch {
-                screen_positions: Vec::new(),
-                screen_radii: Vec::new(),
-                visible_indices: Vec::new(),
-                draw_order: Vec::new(),
-                quadtree_positions: Vec::new(),
-                quadtree_cells: Vec::new(),
-            },
-        });
         if let Some(cache) = &self.graph_cache {
             self.visible_node_count = cache.nodes.len();
             self.visible_edge_count = cache.edges.len();
