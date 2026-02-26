@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
 use eframe::egui::{self, Context, Pos2, Vec2};
@@ -16,6 +16,7 @@ mod ui;
 pub struct NixAnalyzeApp {
     system_path: String,
     state: AppState,
+    reload_rx: Option<Receiver<Result<SystemGraph, String>>>,
 }
 
 enum AppState {
@@ -154,10 +155,14 @@ struct PhysicsConfig {
 impl NixAnalyzeApp {
     pub fn new(_cc: &eframe::CreationContext<'_>, system_path: String) -> Self {
         let state = Self::start_load(system_path.clone());
-        Self { system_path, state }
+        Self {
+            system_path,
+            state,
+            reload_rx: None,
+        }
     }
 
-    fn start_load(system_path: String) -> AppState {
+    fn spawn_load(system_path: String) -> Receiver<Result<SystemGraph, String>> {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
@@ -165,7 +170,13 @@ impl NixAnalyzeApp {
             let _ = tx.send(result);
         });
 
-        AppState::Loading { rx }
+        rx
+    }
+
+    fn start_load(system_path: String) -> AppState {
+        AppState::Loading {
+            rx: Self::spawn_load(system_path),
+        }
     }
 }
 
@@ -204,14 +215,35 @@ impl eframe::App for NixAnalyzeApp {
             }
             AppState::Ready(model) => {
                 let mut reload_requested = false;
-                model.show(ctx, &self.system_path, &mut reload_requested);
-                if reload_requested {
-                    transition = Some(Self::start_load(self.system_path.clone()));
+                let is_reloading = self.reload_rx.is_some();
+                model.show(ctx, &self.system_path, &mut reload_requested, is_reloading);
+
+                if reload_requested && self.reload_rx.is_none() {
+                    self.reload_rx = Some(Self::spawn_load(self.system_path.clone()));
+                }
+
+                if let Some(rx) = self.reload_rx.take() {
+                    match rx.try_recv() {
+                        Ok(result) => {
+                            transition = Some(match result {
+                                Ok(graph) => AppState::Ready(Box::new(ViewModel::new(graph))),
+                                Err(error) => AppState::Error(error),
+                            });
+                        }
+                        Err(TryRecvError::Empty) => {
+                            self.reload_rx = Some(rx);
+                        }
+                        Err(TryRecvError::Disconnected) => {
+                            transition =
+                                Some(AppState::Error("Background load worker disconnected".to_owned()));
+                        }
+                    }
                 }
             }
         }
 
         if let Some(next_state) = transition {
+            self.reload_rx = None;
             self.state = next_state;
         }
     }

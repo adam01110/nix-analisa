@@ -68,6 +68,7 @@ impl ViewModel {
         ctx: &Context,
         system_path: &str,
         reload_requested: &mut bool,
+        is_loading: bool,
     ) {
         self.update_fps_counter(ctx);
         if self.graph_dirty {
@@ -85,12 +86,13 @@ impl ViewModel {
                     ui.label(format!("system path: {system_path}"));
                     ui.label(format!("nodes: {}", self.graph.node_count()));
                     ui.label(format!("edges: {}", self.graph.edge_count));
-                    if ui.button("Reload closure").clicked() {
+                    let reload_button =
+                        ui.add_enabled(!is_loading, egui::Button::new("Reload closure"));
+                    if reload_button.clicked() {
                         *reload_requested = true;
                     }
-                    if ui.button("Reset view").clicked() {
-                        self.pan = Vec2::ZERO;
-                        self.zoom = 1.0;
+                    if ui.button("Rebuild graph").clicked() {
+                        self.graph_dirty = true;
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if let Some(visible_graph_text) = self.visible_graph_text() {
@@ -113,7 +115,18 @@ impl ViewModel {
             .default_width(360.0)
             .show(ctx, |ui| self.draw_details(ui));
 
-        egui::CentralPanel::default().show(ctx, |ui| self.draw_graph(ui));
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if is_loading {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(120.0);
+                    ui.heading("Loading NixOS closure graph...");
+                    ui.add_space(8.0);
+                    ui.spinner();
+                });
+            } else {
+                self.draw_graph(ui);
+            }
+        });
     }
 
     pub(in crate::app) fn set_selected(&mut self, selected: Option<String>) {
