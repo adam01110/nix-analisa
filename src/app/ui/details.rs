@@ -124,8 +124,18 @@ impl ViewModel {
         }
 
         ui.separator();
-        ui.label(RichText::new("Shortest path from root").strong());
-        if let Some(path) = shortest_path_from_root {
+        ui.label(RichText::new("Why installed").strong());
+        if selected_id == self.graph.root_id {
+            ui.label("This is the root closure target currently being analyzed.");
+        } else if let Some(path) = shortest_path_from_root {
+            if let Some(parent) = path.get(path.len().saturating_sub(2)) {
+                ui.label(format!(
+                    "Included because {} depends on {}.",
+                    short_name(parent),
+                    short_name(&selected_id)
+                ));
+            }
+
             let rendered = if path.len() <= 14 {
                 path.iter()
                     .map(|id| short_name(id).to_string())
@@ -146,6 +156,8 @@ impl ViewModel {
                     .join(" -> ");
                 format!("{head} -> ... -> {tail}")
             };
+
+            ui.small("Shortest dependency path from root:");
             ui.label(rendered);
         } else {
             ui.label("No root-reachable path found in the current closure graph.");
