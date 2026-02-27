@@ -30,8 +30,14 @@ enum AppState {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DependencyRankingMode {
-    TopDependencies,
-    TopReverseDependencies,
+    Dependencies,
+    ReverseDependencies,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SizeRankingMode {
+    NarSize,
+    ClosureSize,
 }
 
 struct ViewModel {
@@ -57,14 +63,15 @@ struct ViewModel {
     graph_cache: Option<RenderGraph>,
     search_match_cache: Option<SearchMatchCache>,
     details_panel_cache: Option<DetailsPanelCache>,
-    top_nar: Vec<String>,
-    top_closure: Vec<String>,
-    top_dependencies: Vec<String>,
-    top_referrers: Vec<String>,
+    nar_ranking: Vec<String>,
+    closure_ranking: Vec<String>,
+    dependency_ranking: Vec<String>,
+    reverse_dependency_ranking: Vec<String>,
     nar_rows_visible: usize,
     closure_rows_visible: usize,
     dependency_rows_visible: usize,
     referrer_rows_visible: usize,
+    size_ranking_mode: SizeRankingMode,
     dependency_ranking_mode: DependencyRankingMode,
     related_rows_visible: usize,
     show_fps_bar: bool,

@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
 
-use eframe::egui::{self, Align, Context, Layout, Vec2, vec2};
+use eframe::egui::{self, vec2, Align, Context, Layout, Vec2};
 
 use crate::nix::{SizeMetric, SystemGraph};
 use crate::util::{short_name, stable_pair};
 
 use super::super::render_utils::node_radius;
-use super::super::{DependencyRankingMode, RenderNode, ViewModel};
+use super::super::{DependencyRankingMode, RenderNode, SizeRankingMode, ViewModel};
 
 impl ViewModel {
     pub(in crate::app) const INITIAL_RANKING_ROWS: usize = 20;
@@ -18,10 +18,10 @@ impl ViewModel {
 
     pub(in crate::app) fn new(graph: SystemGraph) -> Self {
         let ranking_limit = graph.node_count();
-        let top_nar = graph.top_by_metric(SizeMetric::NarSize, ranking_limit);
-        let top_closure = graph.top_by_metric(SizeMetric::ClosureSize, ranking_limit);
-        let top_dependencies = graph.top_by_dependencies(ranking_limit);
-        let top_referrers = graph.top_by_referrers(ranking_limit);
+        let nar_ranking = graph.ranked_by_metric(SizeMetric::NarSize, ranking_limit);
+        let closure_ranking = graph.ranked_by_metric(SizeMetric::ClosureSize, ranking_limit);
+        let dependency_ranking = graph.ranked_by_dependencies(ranking_limit);
+        let reverse_dependency_ranking = graph.ranked_by_referrers(ranking_limit);
 
         Self {
             selected: None,
@@ -46,15 +46,16 @@ impl ViewModel {
             graph_cache: None,
             search_match_cache: None,
             details_panel_cache: None,
-            top_nar,
-            top_closure,
-            top_dependencies,
-            top_referrers,
+            nar_ranking,
+            closure_ranking,
+            dependency_ranking,
+            reverse_dependency_ranking,
             nar_rows_visible: Self::INITIAL_RANKING_ROWS,
             closure_rows_visible: Self::INITIAL_RANKING_ROWS,
             dependency_rows_visible: Self::INITIAL_RANKING_ROWS,
             referrer_rows_visible: Self::INITIAL_RANKING_ROWS,
-            dependency_ranking_mode: DependencyRankingMode::TopDependencies,
+            size_ranking_mode: SizeRankingMode::NarSize,
+            dependency_ranking_mode: DependencyRankingMode::Dependencies,
             related_rows_visible: Self::INITIAL_RELATED_ROWS,
             show_fps_bar: true,
             fps_show_current: true,
@@ -92,6 +93,7 @@ impl ViewModel {
                     ui.label(format!("system path: {system_path}"));
                     ui.label(format!("nodes: {}", self.graph.node_count()));
                     ui.label(format!("edges: {}", self.graph.edge_count));
+                    ui.separator();
                     let reload_button =
                         ui.add_enabled(!is_loading, egui::Button::new("Reload closure"));
                     if reload_button.clicked() {
@@ -102,10 +104,16 @@ impl ViewModel {
                         self.graph_dirty = true;
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if let Some(visible_graph_text) = self.visible_graph_text() {
+                        let visible_graph_text = self.visible_graph_text();
+                        let fps_text = self.fps_display_text();
+
+                        if let Some(visible_graph_text) = visible_graph_text.as_ref() {
                             ui.label(visible_graph_text);
                         }
-                        if let Some(fps_text) = self.fps_display_text() {
+                        if visible_graph_text.is_some() && fps_text.is_some() {
+                            ui.separator();
+                        }
+                        if let Some(fps_text) = fps_text.as_ref() {
                             ui.label(fps_text);
                         }
                     });

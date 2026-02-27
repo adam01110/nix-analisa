@@ -12,15 +12,6 @@ impl SizeMetric {
     pub fn is_byte_metric(self) -> bool {
         matches!(self, Self::NarSize | Self::ClosureSize)
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::NarSize => "narSize",
-            Self::ClosureSize => "closureSize",
-            Self::Dependencies => "dependencies",
-            Self::ReverseDependencies => "reverse dependencies",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -58,7 +49,7 @@ impl SystemGraph {
         self.nodes.len()
     }
 
-    pub fn top_by_metric(&self, metric: SizeMetric, limit: usize) -> Vec<String> {
+    pub fn ranked_by_metric(&self, metric: SizeMetric, limit: usize) -> Vec<String> {
         let mut ids = self.nodes.keys().cloned().collect::<Vec<_>>();
         ids.sort_by(|a, b| {
             let a_node = self.nodes.get(a).expect("node exists");
@@ -72,7 +63,7 @@ impl SystemGraph {
         ids
     }
 
-    pub fn top_by_referrers(&self, limit: usize) -> Vec<String> {
+    pub fn ranked_by_referrers(&self, limit: usize) -> Vec<String> {
         let mut ids = self.nodes.keys().cloned().collect::<Vec<_>>();
         ids.sort_by(|a, b| {
             let a_node = self.nodes.get(a).expect("node exists");
@@ -87,7 +78,7 @@ impl SystemGraph {
         ids
     }
 
-    pub fn top_by_dependencies(&self, limit: usize) -> Vec<String> {
+    pub fn ranked_by_dependencies(&self, limit: usize) -> Vec<String> {
         let mut ids = self.nodes.keys().cloned().collect::<Vec<_>>();
         ids.sort_by(|a, b| {
             let a_node = self.nodes.get(a).expect("node exists");

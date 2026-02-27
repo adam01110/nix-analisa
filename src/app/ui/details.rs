@@ -10,6 +10,7 @@ use super::super::{DetailsPanelCache, DetailsPanelCacheKey, RelatedNodeEntry, Vi
 impl ViewModel {
     pub(in crate::app) fn draw_details(&mut self, ui: &mut Ui) {
         ui.heading("Selection Details");
+        ui.separator();
         ui.add_space(6.0);
 
         let Some(selected_id) = self.selected.clone() else {
@@ -32,6 +33,7 @@ impl ViewModel {
         ui.label(RichText::new(node_short).strong());
         ui.small(node.id.as_str());
         ui.add_space(6.0);
+        ui.separator();
 
         ui.label(format!("Full path: {}", node.full_path));
         ui.label(format!("Node size (narSize): {}", format_bytes(nar_size)));
@@ -136,29 +138,48 @@ impl ViewModel {
                 ));
             }
 
-            let rendered = if path.len() <= 14 {
-                path.iter()
-                    .map(|id| short_name(id).to_string())
-                    .collect::<Vec<_>>()
-                    .join(" -> ")
-            } else {
-                let head = path
-                    .iter()
-                    .take(8)
-                    .map(|id| short_name(id).to_string())
-                    .collect::<Vec<_>>()
-                    .join(" -> ");
-                let tail = path
-                    .iter()
-                    .skip(path.len().saturating_sub(4))
-                    .map(|id| short_name(id).to_string())
-                    .collect::<Vec<_>>()
-                    .join(" -> ");
-                format!("{head} -> ... -> {tail}")
-            };
+            ui.separator();
+            ui.label(RichText::new("Shortest dependency path from root:").strong());
 
-            ui.small("Shortest dependency path from root:");
-            ui.label(rendered);
+            enum PathSegment<'a> {
+                Node(&'a str),
+                Ellipsis,
+            }
+
+            let mut segments = Vec::new();
+            if path.len() <= 14 {
+                for id in path.iter() {
+                    segments.push(PathSegment::Node(id.as_str()));
+                }
+            } else {
+                for id in path.iter().take(8) {
+                    segments.push(PathSegment::Node(id.as_str()));
+                }
+                segments.push(PathSegment::Ellipsis);
+                for id in path.iter().skip(path.len().saturating_sub(4)) {
+                    segments.push(PathSegment::Node(id.as_str()));
+                }
+            }
+
+            ui.horizontal_wrapped(|ui| {
+                for (index, segment) in segments.iter().enumerate() {
+                    match segment {
+                        PathSegment::Node(id) => {
+                            if ui.link(short_name(id)).on_hover_text(*id).clicked() {
+                                self.include_node_in_current_graph(id);
+                                self.set_selected(Some((*id).to_owned()));
+                            }
+                        }
+                        PathSegment::Ellipsis => {
+                            ui.weak("...");
+                        }
+                    }
+
+                    if index + 1 < segments.len() {
+                        ui.weak("->");
+                    }
+                }
+            });
         } else {
             ui.label("No root-reachable path found in the current closure graph.");
         }
