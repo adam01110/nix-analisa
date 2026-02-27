@@ -96,9 +96,7 @@ impl ViewModel {
             .iter()
             .enumerate()
             .filter_map(|(index, node)| {
-                if fuzzy_match_score(&matcher, &node.id, search_query).is_some()
-                    || fuzzy_match_score(&matcher, short_name(&node.id), search_query).is_some()
-                {
+                if fuzzy_match_score(&matcher, short_name(&node.id), search_query).is_some() {
                     Some(index)
                 } else {
                     None

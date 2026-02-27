@@ -179,7 +179,7 @@ impl ViewModel {
         let mut changed = false;
         let mut metric_changed = false;
 
-        ui.label("Search (hash or derivation name)")
+        ui.label("Search (derivation name)")
             .on_hover_text("Fuzzy-highlight matching nodes without changing the rendered graph.");
         let search_response = ui.text_edit_singleline(&mut self.search);
         search_response

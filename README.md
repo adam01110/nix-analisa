@@ -69,4 +69,4 @@ cargo update
 - **Max rendered nodes**: cap graph complexity for responsiveness.
 - **Live physics simulation**: continuously spread nodes in the viewport.
 - **Intensity**: tune repulsion and spring strength.
-- **Search**: filter by hash or derivation name.
+- **Search**: filter by derivation name.
