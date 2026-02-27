@@ -12,17 +12,9 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    crate2nix = {
-      url = "github:nix-community/crate2nix";
-      inputs = {
-        flake-parts.follows = "flake-parts";
-        nixpkgs.follows = "nixpkgs";
-      };
-    };
   };
 
   outputs = inputs @ {
-    crate2nix,
     flake-parts,
     systems,
     treefmt-nix,
@@ -36,7 +28,6 @@
       perSystem = {
         config,
         pkgs,
-        system,
         ...
       }: let
         rustTargetEnv = pkgs.lib.toUpper (builtins.replaceStrings ["-"] ["_"] pkgs.stdenv.hostPlatform.config);
@@ -51,42 +42,47 @@
           libxrandr
         ];
         runtimeLibPath = pkgs.lib.makeLibraryPath runtimeLibs;
-        crateOverrides =
-          pkgs.defaultCrateOverrides
-          // {
-            nix-analisa = old: {
-              nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.makeWrapper];
-              postInstall =
-                (old.postInstall or "")
-                + ''
-                  wrapProgram "$out/bin/nix-analisa" \
-                    --set-default WINIT_UNIX_BACKEND wayland
-                '';
-            };
-          };
-        cargoNix = crate2nix.tools.${system}.appliedCargoNix {
-          name = "nix-analisa";
+        app = pkgs.rustPlatform.buildRustPackage {
+          pname = "nix-analisa";
+          version = "0.1.0";
           src = ./.;
-        };
-        app = cargoNix.rootCrate.build.override {
-          inherit crateOverrides;
+
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = [
+            pkgs.makeWrapper
+            pkgs.pkg-config
+            pkgs.clang
+            pkgs.mold
+          ];
+
+          buildInputs = runtimeLibs;
+
+          postInstall = ''
+            wrapProgram "$out/bin/nix-analisa" \
+              --set-default WINIT_UNIX_BACKEND wayland
+          '';
         };
       in {
-        packages.default = app;
-        packages.nix-analisa = app;
+        packages = {
+          default = app;
+          nix-analisa = app;
+        };
 
         devShells.default = pkgs.mkShell ({
-            packages = with pkgs; [
-              cargo
-              rustc
-              rust-analyzer
-              rustfmt
-              clippy
-              pkg-config
-              clang
-              mold
-              crate2nix.packages.${system}.default
-            ];
+            packages = builtins.attrValues {
+              inherit
+                (pkgs)
+                cargo
+                rustc
+                rust-analyzer
+                rustfmt
+                clippy
+                pkg-config
+                clang
+                mold
+                ;
+            };
 
             LD_LIBRARY_PATH = runtimeLibPath;
             RUSTFLAGS = "-C link-arg=-fuse-ld=mold";
@@ -103,17 +99,15 @@
 
         formatter = config.treefmt.build.wrapper;
 
-        checks.build = cargoNix.rootCrate.build.override {
-          runTests = true;
-        };
+        checks.build = app;
 
         treefmt = {
           flakeCheck = true;
           flakeFormatter = true;
           projectRootFile = "flake.nix";
           settings.global.excludes = [
-            "Cargo.nix"
             ".direnv/**"
+            "target/**"
           ];
 
           programs = {

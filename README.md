@@ -46,10 +46,7 @@ nix run . -- --system-path /run/current-system
 nix develop
 ```
 
-## crate2nix flake workflow
-
-The flake uses crate2nix `appliedCargoNix`, so Nix derives build metadata from
-`Cargo.lock` during evaluation.
+## Flake workflow
 
 Common commands:
 
@@ -62,7 +59,7 @@ nix flake check
 Optional manual regeneration (not required for normal flake builds):
 
 ```bash
-./scripts/regenerate-cargo-nix.sh
+cargo update
 ```
 
 ## Graph controls
